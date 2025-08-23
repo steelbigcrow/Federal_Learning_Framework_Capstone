@@ -1,0 +1,20 @@
+# IMDB Transformer 模型架构配置示例文件
+# 复制此文件为 imdb_transformer.yaml 并根据需要修改
+
+dataset: "imdb"
+model: "transformer"
+max_seq_len: 256
+vocab_min_freq: 2
+embedding_dim: 128
+nhead: 4
+num_layers: 2
+hidden_dim: 256
+
+optimizer:
+  name: "adamw"
+  lr: 3e-4
+  weight_decay: 0.01
+
+scheduler:
+  name: "none"
+  warmup_steps: 0

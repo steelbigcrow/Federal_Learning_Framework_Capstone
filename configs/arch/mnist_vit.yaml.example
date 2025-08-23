@@ -1,0 +1,17 @@
+# MNIST ViT 模型架构配置示例文件
+# 复制此文件为 mnist_vit.yaml 并根据需要修改
+
+dataset: "mnist"
+model: "vit"
+image_size: 28
+patch_size: 7
+emb_dim: 128
+depth: 4
+nhead: 4
+mlp_ratio: 2.0
+num_classes: 10
+
+optimizer:
+  name: "adamw"
+  lr: 3e-4
+  weight_decay: 0.01

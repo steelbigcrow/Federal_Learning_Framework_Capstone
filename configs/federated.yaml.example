@@ -1,0 +1,44 @@
+# 联邦学习训练配置示例文件
+# 复制此文件为 federated.yaml 并根据需要修改
+
+run_name: "federated_run"
+seed: 42
+
+# 训练模式配置：
+# - 基模训练: use_lora=false, base_model_path=null
+# - LoRA微调: use_lora=true, base_model_path=必须指定有效路径
+use_lora: false
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: ["Linear", "Embedding"]  # 支持Linear和Embedding两种通用组件
+  train_classifier_head: true
+  # LoRA微调必须指定基模路径（相对于outputs目录）
+  # 示例: "checkpoints/mnist_mlp_20231215_143022/server/round_10.pth"
+  # 注意：只有在LoRA模式下才需要设置此字段，不支持命令行覆盖
+  base_model_path: null
+
+federated:
+  num_clients: 10
+  num_rounds: 5
+  local_epochs: 2
+  batch_size: 1024
+  aggregator: "fedavg"
+  eval_global_each_round: true
+
+data:
+  num_workers: 2  # 减少工作进程数
+  pin_memory: true
+  cache_dir: "./data_cache"  # 数据缓存目录
+  use_cache: true  # 启用数据缓存
+
+logging:
+  root: "./outputs"
+  tensorboard: false
+  log_every_n_steps: 50
+
+checkpoint:
+  save_best_global: true
+  save_client_each_round: true

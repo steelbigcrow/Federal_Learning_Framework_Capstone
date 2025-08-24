@@ -21,57 +21,39 @@ Federal Learning Framework/
 ├─ pytest.ini
 ├─ configs/
 │  ├─ arch/
-│  │  ├─ imdb_lstm.yaml             # 实际配置文件（不被跟踪）
-│  │  ├─ imdb_rnn.yaml              # 实际配置文件（不被跟踪）
-│  │  ├─ imdb_transformer.yaml      # 实际配置文件（不被跟踪）
-│  │  ├─ mnist_mlp.yaml             # 实际配置文件（不被跟踪）
-│  │  ├─ mnist_vit.yaml             # 实际配置文件（不被跟踪）
-│  │  ├─ imdb_lstm.yaml.example     # 配置文件示例（被跟踪）
-│  │  ├─ imdb_rnn.yaml.example      # 配置文件示例（被跟踪）
-│  │  ├─ imdb_transformer.yaml.example # 配置文件示例（被跟踪）
-│  │  ├─ mnist_mlp.yaml.example     # 配置文件示例（被跟踪）
-│  │  └─ mnist_vit.yaml.example     # 配置文件示例（被跟踪）
-│  ├─ federated.yaml               # 实际配置文件（不被跟踪）
-│  ├─ federated.yaml.example       # 配置文件示例（被跟踪）
-├─ data_cache/                     # 数据缓存目录
+│  │  ├─ imdb_lstm.yaml              # 实际配置（不被跟踪）
+│  │  ├─ imdb_rnn.yaml               # 实际配置（不被跟踪）
+│  │  ├─ imdb_transformer.yaml       # 实际配置（不被跟踪）
+│  │  ├─ mnist_mlp.yaml              # 实际配置（不被跟踪）
+│  │  ├─ mnist_vit.yaml              # 实际配置（不被跟踪）
+│  │  ├─ imdb_lstm.yaml.example      # 示例（被跟踪）
+│  │  ├─ imdb_rnn.yaml.example       # 示例（被跟踪）
+│  │  ├─ imdb_transformer.yaml.example# 示例（被跟踪）
+│  │  ├─ mnist_mlp.yaml.example      # 示例（被跟踪）
+│  │  └─ mnist_vit.yaml.example      # 示例（被跟踪）
+│  ├─ federated.yaml                 # 实际配置（不被跟踪）
+│  └─ federated.yaml.example         # 示例（被跟踪）
+├─ data_cache/                       # 数据缓存目录
 ├─ src/
-│  ├─ datasets/                    # 数据集处理模块
-│  │  ├─ imdb.py                   # IMDB数据集处理
-│  │  ├─ mnist.py                  # MNIST数据集处理
-│  │  ├─ partition.py              # 数据分区策略
-│  │  └─ text_utils.py             # 文本处理工具
-│  ├─ federated/                   # 联邦学习核心模块
-│  │  ├─ aggregator.py             # 模型聚合器
-│  │  ├─ client.py                 # 客户端实现
-│  │  └─ server.py                 # 服务器实现
-│  ├─ models/                      # 模型定义模块
-│  │  ├─ imdb_lstm.py              # IMDB LSTM模型
-│  │  ├─ imdb_rnn.py               # IMDB RNN模型
-│  │  ├─ imdb_transformer.py       # IMDB Transformer模型
-│  │  ├─ mnist_mlp.py              # MNIST MLP模型
-│  │  ├─ mnist_vit.py              # MNIST ViT模型
-│  │  └─ registry.py               # 模型注册器
-│  ├─ training/                    # 训练相关模块
-│  │  ├─ checkpoints.py            # 检查点管理
-│  │  ├─ evaluate.py               # 模型评估
-│  │  ├─ logging_utils.py          # 日志工具
-│  │  ├─ lora_utils.py             # LoRA工具
-│  │  └─ plotting.py               # 绘图工具
-│  └─ utils/                       # 通用工具模块
-│     ├─ config.py                 # 配置管理
-│     ├─ device.py                 # 设备管理
-│     ├─ paths.py                  # 路径管理
-│     ├─ seed.py                   # 随机种子设置
-│     └─ serialization.py          # 序列化工具
+│  ├─ datasets/                      # 数据集处理
+│  ├─ federated/                     # 联邦核心（Client/Server/Aggregator）
+│  ├─ models/                        # 模型定义 & 注册器
+│  ├─ training/                      # 训练 & LoRA 工具
+│  └─ utils/                         # 通用工具
 ├─ scripts/
-│  ├─ fed_train.py                 # 联邦训练主脚本
-│  ├─ inspect_checkpoint.py        # 检查点检查脚本
-└─ outputs/                        # 输出目录
-   ├─ checkpoints/                 # 模型检查点
-   ├─ logs/                        # 训练日志
-   ├─ loras/                       # LoRA权重文件
-   ├─ metrics/                     # 评估指标
-   └─ plots/                       # 可视化图表
+│  ├─ fed_train.py                   # 联邦训练主脚本
+│  ├─ inspect_checkpoint.py          # 检查点查看工具
+│  ├─ eval_final.py                  # 离线评测：加载全局权重/基模+LoRA，在 datasets 测试集上推理并出图
+│  ├─ compare_rounds.py              # 多轮对比：遍历 server/round_*.pth 逐轮评测，画“指标-轮次”曲线（非 LoRA）
+│  └─ fed_train_auto.py              # 训练+自动评测：先跑 fed_train，再自动调用 eval_final
+└─ outputs/
+   ├─ checkpoints/                   # 标准训练权重（server/round_*.pth）
+   ├─ loras/                         # LoRA 权重（server/lora_round_*.pth）
+   ├─ logs/                          # 训练日志
+   ├─ metrics/                       # 指标
+   ├─ plots/                         # 训练曲线
+   └─ viz/                           # 评测图表（eval_final / compare_rounds 生成）
+
 ```
 
 - **数据集处理**：通过 `datasets` 库在线获取并缓存至 `./data_cache` 目录
@@ -139,6 +121,24 @@ python scripts/fed_train.py --arch-config configs/arch/mnist_vit.yaml --train-co
 - **全局 LoRA**：`outputs/loras/{dataset}_{model}_lora_{timestamp}/server/lora_round_{r}.pth`
 - **基模路径**：在 `federated.yaml` 中指定，用于 LoRA 微调的基模加载
 
+## 联邦学习测评
+### 1. 手动测评联邦学习结果
+### 1)非 LoRA（直接用全量 checkpoint）
+python scripts/eval_final.py --arch-config configs/arch/mnist_mlp.yaml --checkpoint outputs/checkpoints/mnist_mlp_20250823_203138/server/round_2.pth --outdir outputs/viz/mnist_mlp_20250823_203138/round_2 --device cuda
+MNIST：会生成 mnist_confusion_matrix.png、mnist_per_class_acc.png、mnist_misclassified.png 等
+IMDB：会生成 imdb_roc.png、imdb_pr.png 同时会输出 metrics.json
+
+### 2) LoRA（传入“基模 + LoRA 适配器”）
+python scripts/eval_final.py --arch-config configs/arch/imdb_rnn.yaml --checkpoint outputs/checkpoints/imdb_rnn_20250823_213408/server/round_1.pth --lora-ckpt outputs/loras/imdb_rnn_lora_20250823_221050/server/lora_round_3.pth --outdir outputs/viz/imdb_rnn_lora_20250823_221050/round_3 --device cuda
+eval_final.py 会自动根据 --arch-config 推断任务与模型；若权重键名/形状略有差异，会做兼容性加载（过滤不匹配、必要时扩容词嵌入），避免报错中断。
+
+### 2. 多轮对比（非 LoRA）
+把同一 run 下不同轮次的全局模型拿来统一评测并出“指标-轮次”曲线：
+python scripts/compare_rounds.py --run-dir outputs/checkpoints/mnist_mlp_20250823_203138 --device cuda
+# 或只对指定轮次作图：
+python scripts/compare_rounds.py --run-dir outputs/checkpoints/mnist_mlp_20250823_203138 --rounds 1,2,3 --device cuda
+
+
 ### 通用输出文件
 
 **评估指标**：`outputs/metrics/{run_name}/client_{id}/round_{r}_metrics.json`
@@ -153,12 +153,22 @@ python scripts/fed_train.py --arch-config configs/arch/mnist_vit.yaml --train-co
 - 自动生成的训练过程图表
 - 展示损失和准确率曲线
 
+**离线评测可视化**：
+`MNIST：outputs/viz/{run}/round_{r}/mnist_confusion_matrix.png、mnist_per_class_acc.png、mnist_misclassified.png`
+`IMDB：outputs/viz/{run}/round_{r}/imdb_roc.png、imdb_pr.png`
+`汇总指标：outputs/viz/{run}/round_{r}/metrics.json`
+
+**多轮对比图表**：
+`MNIST：outputs/viz/{run}/compare_rounds/mnist_acc_vs_round.png + metrics.json`
+`IMDB：outputs/viz/{run}/compare_rounds/imdb_auc_vs_round.png + metrics.json`
+
 ### 输出路径说明
 
 - `{dataset}`：数据集名称（mnist/imdb）
 - `{model}`：模型名称（lstm/rnn/transformer/mlp/vit）
 - `{timestamp}`：训练开始时间戳（格式：YYYYMMDD_HHMMSS）
 - `{run_name}`：运行名称（来自配置中的 `run_name` 字段）
+- `{run}`：一次运行的目录名，通常为 {dataset}_{model}_{timestamp}；LoRA 运行常见为 {dataset}_{model}_lora_{timestamp}
 - `{id}`：客户端 ID（0-9）
 - `{r}`：训练轮次（1-`num_rounds`）
 

@@ -144,7 +144,7 @@ def validate_training_config(cfg: Dict[str, Any]) -> None:
 		# 规则2: LoRA微调必须提供基模路径
 		if not base_model_path or base_model_path == "null":
 			raise ValueError(
-				"❌ LoRA fine-tuning mode error: Must specify a valid base_model_path!\n"
+				"ERROR LoRA fine-tuning mode error: Must specify a valid base_model_path!\n"
 				"Please set in federated.yaml:\n"
 				"lora:\n"
 				"  base_model_path: \"checkpoints/your_model/server/round_X.pth\""
@@ -160,13 +160,13 @@ def validate_training_config(cfg: Dict[str, Any]) -> None:
 
 		if not os.path.exists(full_path):
 			raise ValueError(
-				f"❌ LoRA fine-tuning mode error: Base model path does not exist!\n"
+				f"ERROR LoRA fine-tuning mode error: Base model path does not exist!\n"
 				f"Specified path: {base_model_path}\n"
 				f"Full path: {full_path}\n"
 				f"Please ensure the base model file exists before LoRA fine-tuning."
 			)
 
-		print(f"[Config Validation] ✅ LoRA fine-tuning configuration is valid, base model path: {full_path}")
+		print(f"[Config Validation] OK LoRA fine-tuning configuration is valid, base model path: {full_path}")
 
 	else:
 		# 基模训练模式的验证
@@ -175,13 +175,13 @@ def validate_training_config(cfg: Dict[str, Any]) -> None:
 		# 规则4: 基模训练时不应该有base_model_path
 		if base_model_path and base_model_path != "null":
 			raise ValueError(
-				"❌ Base model training mode error: Should not set base_model_path!\n"
+				"ERROR Base model training mode error: Should not set base_model_path!\n"
 				"In base model training mode, please set:\n"
 				"use_lora: false\n"
 				"lora:\n"
 				"  base_model_path: null"
 			)
 
-		print("[Config Validation] ✅ Base model training configuration is valid")
+		print("[Config Validation] OK Base model training configuration is valid")
 
 	print("[Config Validation] Training configuration validation passed")

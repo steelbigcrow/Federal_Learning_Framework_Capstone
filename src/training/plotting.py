@@ -63,7 +63,7 @@ def plot_client_metrics(client_id: int, round_metrics_history: List[Dict], save_
     
     # 创建子图
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-    fig.suptitle(f'Client {client_id} 指标变化图', fontsize=16, fontweight='bold')
+    fig.suptitle(f'Client {client_id} Metrics Overview', fontsize=16, fontweight='bold')
     
     # 设置中文字体（可选，如果系统支持）
     try:

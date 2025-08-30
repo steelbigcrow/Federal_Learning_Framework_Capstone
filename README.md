@@ -1,220 +1,168 @@
 # 联邦学习本地串行同步框架（PyTorch + LoRA）
 
-本项目在本机串行、同步地模拟联邦学习（FedAvg），支持以下数据与模型：
+PyTorch 实现的本地串行同步联邦学习框架，支持标准联邦学习和 LoRA 微调。
 
-- **数据集**：IMDB（二分类）、MNIST（10 类）
+## 特性
+
+- **数据集**：MNIST（10类分类）、IMDB（情感二分类）
 - **模型**：
+  - MNIST：MLP、Vision Transformer
   - IMDB：RNN、LSTM、Transformer
-  - MNIST：MLP、ViT（Vision Transformer）
 - **训练模式**：
-  - 标准联邦训练：全模型参数训练
-  - LoRA 联邦微调：基于 loralib 的 LoRA 微调（仅训练 LoRA + 分类头）
-- **数据分布**（非独立同分布 Non-IID）：
-  - IMDB：10 个客户端，其中 5 个仅包含负面评论（label=0），5 个仅包含正面评论（label=1）
-  - MNIST：10 个客户端，每个客户端仅包含一种数字类别（0-9）
+  - 标准联邦训练（全参数训练）
+  - LoRA 微调（仅训练 LoRA + 分类头）
+- **数据分布**：强制非独立同分布 Non-IID（10个客户端，与数据集类数匹配）
 
 ## 目录结构
 
 ```
-Federal Learning Framework/
-├─ README.md
-├─ requirements.txt
-├─ pytest.ini
-├─ configs/
-│  ├─ arch/
-│  │  ├─ imdb_lstm.yaml              # 实际配置（不被跟踪）
-│  │  ├─ imdb_rnn.yaml               # 实际配置（不被跟踪）
-│  │  ├─ imdb_transformer.yaml       # 实际配置（不被跟踪）
-│  │  ├─ mnist_mlp.yaml              # 实际配置（不被跟踪）
-│  │  ├─ mnist_vit.yaml              # 实际配置（不被跟踪）
-│  │  ├─ imdb_lstm.yaml.example      # 示例（被跟踪）
-│  │  ├─ imdb_rnn.yaml.example       # 示例（被跟踪）
-│  │  ├─ imdb_transformer.yaml.example# 示例（被跟踪）
-│  │  ├─ mnist_mlp.yaml.example      # 示例（被跟踪）
-│  │  └─ mnist_vit.yaml.example      # 示例（被跟踪）
-│  ├─ federated.yaml                 # 实际配置（不被跟踪）
-│  └─ federated.yaml.example         # 示例（被跟踪）
-├─ data_cache/                       # 数据缓存目录
-├─ src/
-│  ├─ datasets/                      # 数据集处理
-│  ├─ federated/                     # 联邦核心（Client/Server/Aggregator）
-│  ├─ models/                        # 模型定义 & 注册器
-│  ├─ training/                      # 训练 & LoRA 工具
-│  ├─ evaluation/                    # 评估模块（ModelEvaluator、可视化工具）
-│  └─ utils/                         # 通用工具
-├─ scripts/
-│  ├─ fed_train.py                   # 联邦训练主脚本（支持自动评估）
-│  ├─ inspect_checkpoint.py          # 检查点查看工具
-│  ├─ eval_final.py                  # 离线评测：加载全局权重/基模+LoRA，在 datasets 测试集上推理并出图
-│  └─ compare_rounds.py              # 多轮对比：遍历 server/round_*.pth 逐轮评测，画"指标-轮次"曲线
-└─ outputs/
-   ├─ checkpoints/                   # 标准训练权重（server/round_*.pth）
-   ├─ loras/                         # LoRA 权重（server/lora_round_*.pth）
-   ├─ logs/                          # 训练日志
-   ├─ metrics/                       # 指标
-   ├─ plots/                         # 训练曲线
-   └─ viz/                           # 评测图表（eval_final / compare_rounds 生成）
-
+federal-learning-framework/
+├── configs/
+│   ├── arch/
+│   │   ├── mnist_mlp.yaml           # ❌ 非跟踪：实际使用的架构配置
+│   │   ├── mnist_vit.yaml           # ❌ 非跟踪：实际使用的架构配置
+│   │   ├── imdb_rnn.yaml            # ❌ 非跟踪：实际使用的架构配置
+│   │   ├── imdb_lstm.yaml           # ❌ 非跟踪：实际使用的架构配置
+│   │   ├── imdb_transformer.yaml    # ❌ 非跟踪：实际使用的架构配置
+│   │   ├── *.yaml.example           # ✅ 跟踪：版本控制的示例文件
+│   ├── federated.yaml               # ❌ 非跟踪：实际使用的训练配置
+│   └── federated.yaml.example       # ✅ 跟踪：联邦学习配置示例
+├── data_cache/                      # ❌ 非跟踪：数据集缓存（自动生成）
+├── outputs/                         # ❌ 非跟踪：训练输出目录
+├── scripts/
+│   ├── fed_train.py                 # ✅ 跟踪：主训练脚本
+│   ├── compare_rounds.py            # ✅ 跟踪：多轮对比分析
+│   └── inspect_checkpoint.py        # ✅ 跟踪：检查点检查工具
+├── src/                             # ✅ 跟踪：核心源代码
+│   ├── datasets/                    # 数据集处理模块
+│   ├── federated/                   # 联邦学习核心
+│   ├── models/                      # 模型定义与注册器
+│   ├── training/                    # 训练工具与LoRA支持
+│   ├── evaluation/                  # 综合评估模块
+│   └── utils/                       # 工具函数
+├── requirements.txt                 # ✅ 跟踪：依赖包列表
+├── pytest.ini                       # ✅ 跟踪：测试配置
+└── README.md                        # ✅ 跟踪：项目文档
 ```
 
-- **数据集处理**：通过 `datasets` 库在线获取并缓存至 `./data_cache` 目录
-- **模型架构**：支持 IMDB（RNN、LSTM、Transformer）和 MNIST（MLP、ViT）模型
-- **联邦学习**：实现 FedAvg 算法，支持标准训练和 LoRA 微调
-- **配置管理**：采用双配置模式，分离架构配置和训练配置
-- **输出管理**：结构化的输出目录，按功能分类存储各种文件
+**版本控制说明**：
+- ✅ 跟踪文件：包含在 Git 版本控制中
+- ❌ 非跟踪文件：需要在首次使用时创建，不应提交到仓库
 
 ## 快速开始
 
-1) 安装依赖
+### 1. 环境安装
 
-```
+```bash
 pip install -r requirements.txt
 ```
 
-2) 双配置用法
+### 2. 配置设置
 
-使用两个 YAML 文件：
-- **架构配置**（`configs/arch/`）：定义数据集和模型结构参数
-- **训练配置**（`configs/federated.yaml`）：定义联邦学习超参数、LoRA设置等
-
-**示例 A：IMDB + Transformer 联邦 LoRA 微调（带自动评估）**
-
+首次使用复制配置文件：
 ```bash
-python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml --use-lora --auto-eval
+# 复制训练配置文件
+cp configs/federated.yaml.example configs/federated.yaml
+
+# 复制需要的架构配置文件
+cp configs/arch/imdb_transformer.yaml.example configs/arch/imdb_transformer.yaml
+cp configs/arch/mnist_mlp.yaml.example configs/arch/mnist_mlp.yaml
 ```
 
-**示例 B：MNIST + MLP 标准联邦训练（带自动评估）**
+### 3. 核心训练命令
 
+**标准联邦训练：**
 ```bash
+# MNIST MLP 标准训练（推荐）
 python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --auto-eval
+
+# IMDB Transformer 标准训练
+python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml --auto-eval
 ```
 
-**示例 C：MNIST + MLP 标准联邦训练（不带自动评估，仅训练）**
+**LoRA 微调训练：**
 ```bash
-python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml
+# MNIST MLP LoRA 微调
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --use-lora --auto-eval
+
+# IMDB RNN LoRA 微调
+python scripts/fed_train.py --arch-config configs/arch/imdb_rnn.yaml --train-config configs/federated.yaml --use-lora --auto-eval
 ```
 
-
-**配置覆盖**：使用 `--override` 参数临时覆盖配置项：
+### 4. 分析工具
 
 ```bash
---override federated.num_rounds=5 federated.num_clients=5 lora.r=16
+# 多轮对比分析
+python scripts/compare_rounds.py --run-dir outputs/checkpoints/mnist_mlp_timestamp --device cuda
+
+# 检查模型权重
+python scripts/inspect_checkpoint.py --path outputs/checkpoints/mnist_mlp_timestamp/server/round_1.pth
 ```
 
-**数据缓存控制**：
-- 默认启用缓存：`--data-cache-dir ./data_cache`
-- 禁用缓存：`--no-cache`（直接从 HuggingFace 加载）
+## 双配置系统
 
+框架采用双配置文件体系：
 
+### 架构配置（`configs/arch/`）
+- 定义数据集和模型结构参数
+- 每个模型有专用配置文件
+- 支持 `.example` 文件版本控制
 
-## 联邦学习输出
+### 训练配置（`configs/federated.yaml`）
+- 定义联邦学习超参数
+- LoRA 设置和管理
+- 路径管理和日志设置
 
-框架支持两种训练模式：
+## 输出结构
 
-### 1. 标准联邦训练
-- **训练方式**：全模型参数训练
-- **客户端权重**：`outputs/checkpoints/{dataset}_{model}_{timestamp}/clients/client_{id}/round_{r}.pth`
-- **全局权重**：`outputs/checkpoints/{dataset}_{model}_{timestamp}/server/round_{r}.pth`
+训练输出按时间戳组织：
 
-### 2. LoRA 联邦微调
-- **训练方式**：仅训练 LoRA 权重和分类头，基模参数冻结
-- **LoRA 权重**：`outputs/loras/{dataset}_{model}_lora_{timestamp}/clients/client_{id}/lora_round_{r}.pth`
-- **全局 LoRA**：`outputs/loras/{dataset}_{model}_lora_{timestamp}/server/lora_round_{r}.pth`
-- **基模路径**：在 `federated.yaml` 中指定，用于 LoRA 微调的基模加载
+```
+outputs/
+├── checkpoints/     # 全局模型权重
+│   └── dataset_model_timestamp/
+│       └── server/round_*.pth
+├── loras/          # LoRA 适配器权重
+│   └── dataset_model_lora_timestamp/
+│       └── server/lora_round_*.pth
+├── logs/           # 客户端训练日志
+├── metrics/        # 训练指标（JSON格式）
+└── plots/          # 训练曲线图表
+```
 
-### 训练 / 微调 + 评测
+**评估可视化已集成**：评估图表现在通过 `fed_train.py --auto-eval` 自动生成到 `plots` 目录。
 
+## LoRA 微调特性
 
+- 使用 `loralib` 将 Linear/Embedding 层替换为 LoRA 版本
+- 仅训练 LoRA 参数（`lora_A`, `lora_B`）+ 分类头
+- 基模型参数在微调期间冻结
+- 需在 `federated.yaml` 中设置 `lora.base_model_path`
 
-### 通用输出文件
+## 重要实现说明
 
-**评估指标**：`outputs/metrics/{run_name}/client_{id}/round_{r}_metrics.json`
-- 包含训练损失、验证准确率等指标
-- 支持全局模型评估指标
-
-**训练日志**：`outputs/logs/{run_name}/client_{id}/round_{r}_training.log`
-- 详细的训练过程日志
-- 包含每个 epoch 的损失和指标
-
-**可视化图表**：`outputs/plots/{run_name}/client_{id}/client_{id}_metrics.png`
-- 自动生成的训练过程图表
-- 展示损失和准确率曲线
-
-### 输出文件说明
-
-#### 评测结果可视化
-
-**MNIST 数据集评测输出**：
-- 混淆矩阵：`outputs/viz/{run}/round_{r}/mnist_confusion_matrix.png`
-- 每类准确率：`outputs/viz/{run}/round_{r}/mnist_per_class_acc.png`
-- 错分样本：`outputs/viz/{run}/round_{r}/mnist_misclassified.png`
-
-**IMDB 数据集评测输出**：
-- ROC 曲线：`outputs/viz/{run}/round_{r}/imdb_roc.png`
-- PR 曲线：`outputs/viz/{run}/round_{r}/imdb_pr.png`
-
-**汇总指标**：`outputs/viz/{run}/round_{r}/metrics.json`
-
-**多轮对比图表**：
-- MNIST：`outputs/viz/{run}/compare_rounds/mnist_acc_vs_round.png`
-- IMDB：`outputs/viz/{run}/compare_rounds/imdb_auc_vs_round.png`
-
-### 输出路径说明
-
-- `{dataset}`：数据集名称（mnist/imdb）
-- `{model}`：模型名称（lstm/rnn/transformer/mlp/vit）
-- `{timestamp}`：训练开始时间戳（格式：YYYYMMDD_HHMMSS）
-- `{run_name}`：运行名称（来自配置中的 `run_name` 字段）
-- `{run}`：一次运行的目录名，通常为 {dataset}_{model}_{timestamp}；LoRA 运行常见为 {dataset}_{model}_lora_{timestamp}
-- `{id}`：客户端 ID（0-9）
-- `{r}`：训练轮次（1-`num_rounds`）
-
-#### 框架特性
-
-**双配置系统**：
-- **架构配置** (`configs/arch/`)：定义数据集和模型结构参数
-- **训练配置** (`configs/federated.yaml`)：定义联邦学习超参数、LoRA设置等
-
-**自动化评测**：
-- `fed_train.py --auto-eval`：集成的训练和评估工具，推荐使用
-- `eval_final.py`：独立的最终模型性能评测，支持标准模型和LoRA模型
-- `compare_rounds.py`：多轮次性能对比分析
+### 客户端数量要求
+- **固定 10 个客户端**：与数据集类数匹配的 Non-IID 数据分布要求
+- MNIST：每个客户端获得一种数字类别（0-9）
+- IMDB：5个客户端获得负面评论，5个客户端获得正面评论
 
 ### 数据分区策略
+- **MNIST**：标签偏移完全非IID，模拟最严格的异构性
+- **IMDB**：平衡正负分布的定制Non-IID场景
 
-**IMDB 数据集**：
-- 10 个客户端
-- 5 个客户端仅包含负面评论（label=0）
-- 5 个客户端仅包含正面评论（label=1）
-- 模拟非独立同分布（Non-IID）场景
+### 参数覆盖
+```bash
+--override federated.num_rounds=5 federated.num_clients=10 lora.r=8
+```
 
-**MNIST 数据集**：
-- 10 个客户端
-- 每个客户端仅包含一种数字类别（0-9）
-- 完全模拟标签偏移场景
+**配置管理最佳实践**：
+- 使用 `.example` 文件维护配置模板
+- `.yaml.example` 文件受版本控制
+- 实际 `.yaml` 文件不进入版本控制，避免环境冲突
 
-## 配置管理策略
+### 自动化评测
+- `fed_train.py --auto-eval`：集成的训练自动评估工具（推荐使用）
+- 自动生成训练曲线、性能指标和对比分析
+- 支持标准模型和 LoRA 模型的一致性评估
 
-### 配置文件版本控制
-
-为避免不同主机间的配置冲突，采用以下策略：
-
-1. **示例配置文件**（被版本控制）：
-   - `configs/federated.yaml.example` - 标准训练配置示例
-   - `configs/arch/*.yaml.example` - 架构配置文件示例
-
-2. **实际配置文件**（不被版本控制）：
-   - `configs/federated.yaml` - 实际使用的训练配置
-   - `configs/arch/*.yaml` - 实际使用的架构配置
-
-### 配置使用流程
-
-1. **首次设置**：复制示例文件为实际配置文件
-   ```bash
-   # 复制训练配置文件
-   cp configs/federated.yaml.example configs/federated.yaml
-
-   # 复制架构配置文件（根据需要选择）
-   cp configs/arch/imdb_transformer.yaml.example configs/arch/imdb_transformer.yaml
-   cp configs/arch/mnist_mlp.yaml.example configs/arch/mnist_mlp.yaml
-   ```
+框架专注于非IID联邦学习场景，具有自动设备检测、内存优化加载和CUDA优先支持。

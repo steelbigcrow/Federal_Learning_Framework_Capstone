@@ -36,7 +36,7 @@ def load_checkpoint(path: str, map_location: str = 'cpu') -> Dict[str, Any]:
 	Returns:
 		加载的状态字典
 	"""
-	return torch.load(path, map_location=map_location)
+	return torch.load(path, map_location=map_location, weights_only=False)
 
 
 def try_load_meta(path: str) -> Dict[str, Any]:

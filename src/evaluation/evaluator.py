@@ -206,7 +206,7 @@ class ModelEvaluator:
     def _load_standard_model(self, model: nn.Module, checkpoint_path: str):
         """Load standard model checkpoint."""
         checkpoint_path = Path(checkpoint_path)
-        obj = torch.load(checkpoint_path, map_location="cpu")
+        obj = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         
         state_dict = obj.get("state_dict") if isinstance(obj, dict) else obj
         if state_dict is None:
@@ -228,7 +228,7 @@ class ModelEvaluator:
         
         # Then load LoRA adapter
         lora_path = Path(lora_checkpoint_path)
-        obj = torch.load(lora_path, map_location="cpu")
+        obj = torch.load(lora_path, map_location="cpu", weights_only=False)
         
         lora_state_dict = obj.get("state_dict") if isinstance(obj, dict) else obj
         if lora_state_dict is None:
@@ -295,26 +295,26 @@ class ModelEvaluator:
         # For LoRA: use LoRA checkpoint path to determine directory
         # For standard: use standard checkpoint path
         if use_lora:
-            lora_checkpoint_parent = lora_path.parent.parent  # From server/lora_round_N.pth back to model_dir
+            lora_checkpoint_parent = lora_path.parent.parent.parent  # From server/lora_round_N.pth back to model_dir
             model_run_dir = lora_checkpoint_parent.name
         else:
-            checkpoint_parent = checkpoint_path.parent.parent  # From server/round_N.pth back to model_dir  
+            checkpoint_parent = checkpoint_path.parent.parent.parent  # From server/round_N.pth back to model_dir  
             model_run_dir = checkpoint_parent.name
         
-        output_dir = self.outputs_root / "plots" / model_run_dir / "server"
+        output_dir = self.outputs_root / ("loras" if use_lora else "models") / model_run_dir / "plots" / "server"
         
         return checkpoint_path, lora_path, output_dir
     
     def _find_checkpoint(self, is_lora: bool, run_name: str, num_rounds: int, 
                         started_at: float) -> Optional[Path]:
         """Find the most appropriate checkpoint for evaluation."""
-        root = self.outputs_root / ("loras" if is_lora else "checkpoints")
-        target_pattern = f"server/{'lora_' if is_lora else ''}round_{num_rounds}.pth"
+        root = self.outputs_root / ("loras" if is_lora else "models")
+        target_pattern = f"weights/server/{'lora_' if is_lora else ''}round_{num_rounds}.pth"
         
         # Look for exact round in run-specific directories
         candidate_dirs = []
         for d in root.glob(f"*{run_name}*"):
-            if (d / "server").exists():
+            if (d / "weights" / "server").exists():
                 candidate_dirs.append(d)
         candidate_dirs.sort(key=lambda p: p.stat().st_mtime)
         
@@ -326,14 +326,14 @@ class ModelEvaluator:
         
         # Try latest available round
         for d in reversed(candidate_dirs):
-            available = self._get_all_round_checkpoints(d / "server", is_lora)
+            available = self._get_all_round_checkpoints(d / "weights" / "server", is_lora)
             if available:
                 return available[-1][1]  # Return latest
         
         # Global search as fallback
         candidates = []
         for d in root.glob("*"):
-            if not (d / "server").exists():
+            if not (d / "weights" / "server").exists():
                 continue
             
             exact_path = d / target_pattern

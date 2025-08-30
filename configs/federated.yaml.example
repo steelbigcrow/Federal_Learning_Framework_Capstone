@@ -16,7 +16,7 @@ lora:
   target_modules: ["Linear", "Embedding"]  # 支持Linear和Embedding两种通用组件
   train_classifier_head: true
   # LoRA微调必须指定基模路径（相对于outputs目录）
-  # 示例: "checkpoints/mnist_mlp_20231215_143022/server/round_10.pth"
+  # 示例: "models/mnist_mlp_20231215_143022/weights/server/round_10.pth"
   # 注意：只有在LoRA模式下才需要设置此字段，不支持命令行覆盖
   base_model_path: null
 

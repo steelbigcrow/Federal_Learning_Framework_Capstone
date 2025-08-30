@@ -23,14 +23,17 @@ def main():
 	args = parser.parse_args()
 
 	# 加载检查点文件到CPU内存
-	state = torch.load(args.path, map_location='cpu')
+	state = torch.load(args.path, map_location='cpu', weights_only=False)
 
 	# 显示状态字典的基本信息
 	print(f'Keys in checkpoint: {len(state.keys())}')
 
 	# 显示前50个键值对的形状信息
 	for k, v in list(state.items())[:50]:
-		print(f'{k}: {tuple(v.shape)}')
+		if hasattr(v, 'shape'):
+			print(f'{k}: {tuple(v.shape)}')
+		else:
+			print(f'{k}: {type(v)} - {str(v)[:100]}')
 
 
 if __name__ == '__main__':

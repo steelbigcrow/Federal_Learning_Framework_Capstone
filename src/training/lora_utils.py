@@ -159,7 +159,7 @@ def load_lora_checkpoint(model: nn.Module, path: str, strict: bool = False) -> D
 	Returns:
 		检查点中的元数据
 	"""
-	checkpoint = torch.load(path, map_location='cpu')
+	checkpoint = torch.load(path, map_location='cpu', weights_only=False)
 
 	if 'lora_state_dict' in checkpoint:
 		load_lora_state_dict(model, checkpoint['lora_state_dict'], strict=strict)
@@ -186,7 +186,7 @@ def load_base_model_checkpoint(model: nn.Module, checkpoint_path: str, strict: b
 		raise FileNotFoundError(f"Base model checkpoint not found: {checkpoint_path}")
 
 	print(f"[LoRA] Loading base model: {checkpoint_path}")
-	checkpoint = torch.load(checkpoint_path, map_location='cpu')
+	checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
 
 	# 处理不同的检查点格式
 	if 'model_state_dict' in checkpoint:

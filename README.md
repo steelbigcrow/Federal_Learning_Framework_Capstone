@@ -93,10 +93,10 @@ python scripts/fed_train.py --arch-config configs/arch/imdb_rnn.yaml --train-con
 
 ```bash
 # 多轮对比分析
-python scripts/compare_rounds.py --run-dir outputs/checkpoints/mnist_mlp_timestamp --device cuda
+python scripts/compare_rounds.py --run-dir outputs/models/mnist_mlp_timestamp --device cuda
 
 # 检查模型权重
-python scripts/inspect_checkpoint.py --path outputs/checkpoints/mnist_mlp_timestamp/server/round_1.pth
+python scripts/inspect_checkpoint.py --path outputs/models/mnist_mlp_timestamp/weights/server/round_1.pth
 ```
 
 ## 双配置系统
@@ -115,22 +115,56 @@ python scripts/inspect_checkpoint.py --path outputs/checkpoints/mnist_mlp_timest
 
 ## 输出结构
 
-训练输出按时间戳组织：
+训练输出按时间戳组织，统一结构便于管理：
 
 ```
 outputs/
-├── checkpoints/     # 全局模型权重
-│   └── dataset_model_timestamp/
-│       └── server/round_*.pth
-├── loras/          # LoRA 适配器权重
-│   └── dataset_model_lora_timestamp/
-│       └── server/lora_round_*.pth
-├── logs/           # 客户端训练日志
-├── metrics/        # 训练指标（JSON格式）
-└── plots/          # 训练曲线图表
+├── models/        # 标准模型权重
+│   └── {数据集}_{模型架构}_{时间戳}/
+│       ├── weights/
+│       │   ├── clients/          # 每个客户端的模型权重
+│       │   │   └── client_{id}/  # 单独客户端文件夹
+│       │   └── server/          # 全局模型权重
+│       ├── logs/
+│       │   ├── clients/          # 每个客户端的训练日志
+│       │   │   └── client_{id}/  # 单独客户端文件夹
+│       │   └── server/          # 服务器训练日志
+│       ├── metrics/
+│       │   ├── clients/          # 每个客户端的训练指标
+│       │   │   └── client_{id}/  # 单独客户端文件夹
+│       │   └── server/          # 服务器训练指标
+│       └── plots/
+│           ├── clients/          # 每个客户端的训练图表
+│           │   └── client_{id}/  # 单独客户端文件夹
+│           └── server/          # 服务器训练图表
+└── loras/         # LoRA 适配器权重
+    └── {数据集}_{模型架构}_lora_{时间戳}/
+        ├── weights/
+        │   ├── clients/          # 每个客户端的LoRA权重
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 全局LoRA权重
+        ├── logs/
+        │   ├── clients/          # 每个客户端的训练日志
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 服务器训练日志
+        ├── metrics/
+        │   ├── clients/          # 每个客户端的训练指标
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 服务器训练指标
+        └── plots/
+            ├── clients/          # 每个客户端的训练图表
+            │   └── client_{id}/  # 单独客户端文件夹
+            └── server/          # 服务器训练图表
 ```
 
-**评估可视化已集成**：评估图表现在通过 `fed_train.py --auto-eval` 自动生成到 `plots` 目录。
+**结构说明**：
+- 每次运行在 `models/`（标准训练）或 `loras/`（LoRA训练）下创建时间戳文件夹
+- 每个运行文件夹包含统一的四个子目录：`weights/`、`logs/`、`metrics/`、`plots/`
+- 每个子目录都包含 `clients/` 和 `server/` 两个子目录
+- `clients/` 目录下根据客户端数量创建对应数量的 `client_{id}/` 文件夹
+- `server/` 目录下不再有子文件夹，直接存储服务器相关文件
+
+**评估可视化已集成**：评估图表现在通过 `fed_train.py --auto-eval` 自动生成到对应运行文件夹的 `plots/` 目录中。
 
 ## LoRA 微调特性
 

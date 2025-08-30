@@ -121,32 +121,28 @@ class Server:
 						"lora": self.lora_cfg,
 					}
 					
-					# LoRA模式：只保存LoRA权重到loras文件夹
-					if self.lora_cfg and self.lora_cfg.get('replaced_modules'):
-						try:
+					# 统一保存权重到weights文件夹
+					try:
+						ckpt_path = self.paths.client_round_ckpt(client.id, r)
+						meta = self.build_client_meta(r, client.id, n, metrics)
+
+						# LoRA模式：保存LoRA权重
+						if self.lora_cfg and self.lora_cfg.get('replaced_modules'):
 							# 创建临时模型来提取LoRA权重
 							temp_model = self.model_ctor()
 							temp_model.load_state_dict(client_sd, strict=False)
 
-							lora_path = self.paths.client_lora_round_path(client.id, r)
-							lora_meta = self.build_lora_meta(r, client.id, metrics)
-
-							msg_lora = f"[Federated][Round {r}] Client {client.id} LoRA weights saved: {lora_path}"
+							msg_saved = f"[Federated][Round {r}] Client {client.id} LoRA weights saved: {ckpt_path}"
 							success = self.safe_save_and_log(
-								save_lora_checkpoint, msg_lora, log_file, server_log, lora_path,
-								temp_model, lora_path, lora_meta
+								save_lora_checkpoint, msg_saved, log_file, server_log, ckpt_path,
+								temp_model, ckpt_path, meta
 							)
 							if not success:
 								print(f"[Error] Failed to save client {client.id} LoRA weights")
-						except Exception as e:
-							print(f"[Error] Failed to save client {client.id} LoRA weights: {e}")
-					
-					# 基模训练模式：保存完整权重到checkpoints文件夹
-					else:
-						try:
-							ckpt_path = self.paths.client_round_ckpt(client.id, r)
-							meta = self.build_client_meta(r, client.id, n, metrics)
-
+							else:
+								print(f"[[Federated][Round {r}] Client {client.id} LoRA weights saved: {ckpt_path}")
+						# 基模训练模式：保存完整权重
+						else:
 							msg_saved = f"[Federated][Round {r}] Client {client.id} complete model saved: {ckpt_path}"
 							success = self.safe_save_and_log(
 								save_client_round, msg_saved, log_file, server_log, ckpt_path,
@@ -154,8 +150,10 @@ class Server:
 							)
 							if not success:
 								print(f"[Error] Failed to save client {client.id} model")
-						except Exception as e:
-							print(f"[Error] Failed to save client {client.id} model: {e}")
+							else:
+								print(f"[[Federated][Round {r}] Client {client.id} complete model saved: {ckpt_path}")
+					except Exception as e:
+						print(f"[Error] Failed to save client {client.id} weights: {e}")
 				state_dicts.append(client_sd)
 				num_samples.append(n)
 			# 聚合
@@ -187,28 +185,25 @@ class Server:
 			try:
 				g_meta = {"round": r, "lora": self.lora_cfg}
 				
-				# LoRA模式：只保存LoRA权重到loras文件夹
-				if self.lora_cfg and self.lora_cfg.get('replaced_modules'):
-					try:
-						server_lora_path = self.paths.server_lora_round_path(r)
-						server_lora_meta = self.build_server_meta(r, is_lora=True)
-
-						msg_server_lora = f"[Federated][Round {r}] Global LoRA weights saved: {server_lora_path}"
+				# 统一保存全局模型权重到weights文件夹
+				try:
+					g_path = self.paths.global_round_ckpt(r)
+					
+					# LoRA模式：保存LoRA权重
+					if self.lora_cfg and self.lora_cfg.get('replaced_modules'):
+						g_meta = self.build_server_meta(r, is_lora=True)
+						msg_global = f"[Federated][Round {r}] Global LoRA weights saved: {g_path}"
 						success = self.safe_save_and_log(
-							save_lora_checkpoint, msg_server_lora, server_log, server_log, server_lora_path,
-							self.global_model, server_lora_path, server_lora_meta
+							save_lora_checkpoint, msg_global, server_log, server_log, g_path,
+							self.global_model, g_path, g_meta
 						)
 						if success:
-							print(f"[Round {r}/{num_rounds}] Global LoRA weights saved: {server_lora_path}")
-					except Exception as e:
-						print(f"[Error] Failed to save server LoRA weights: {e}")
-				
-				# 基模训练模式：保存完整权重到checkpoints文件夹
-				else:
-					try:
-						g_path = self.paths.global_round_ckpt(r)
+							print(f"[Round {r}/{num_rounds}] Global LoRA weights saved: {g_path}")
+						else:
+							print(f"[Error] Failed to save global LoRA weights")
+					# 基模训练模式：保存完整权重
+					else:
 						g_meta = self.build_server_meta(r, is_lora=False)
-
 						msg_global = f"[Federated][Round {r}] Aggregation completed, global complete model saved: {g_path}"
 						success = self.safe_save_and_log(
 							save_global_round, msg_global, server_log, server_log, g_path,
@@ -216,8 +211,10 @@ class Server:
 						)
 						if success:
 							print(f"[Round {r}/{num_rounds}] Global complete model saved: {g_path}")
-					except Exception as e:
-						print(f"[Error] Failed to save global model: {e}")
+						else:
+							print(f"[Error] Failed to save global model")
+				except Exception as e:
+					print(f"[Error] Failed to save global model: {e}")
 			except Exception as e:
 				print(f"[Error] Global model save process failed: {e}")
 			try:
@@ -240,7 +237,7 @@ class Server:
 				plot_all_clients_metrics(
 					client_ids=client_ids,
 					metrics_clients_dir=self.paths.metrics_clients_dir,
-					plots_dir=self.paths.plots_root,
+					plots_dir=self.paths.plots_clients_dir,
 					current_round=r
 				)
 			except Exception as e:

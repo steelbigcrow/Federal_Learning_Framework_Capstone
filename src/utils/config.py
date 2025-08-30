@@ -147,7 +147,7 @@ def validate_training_config(cfg: Dict[str, Any]) -> None:
 				"ERROR LoRA fine-tuning mode error: Must specify a valid base_model_path!\n"
 				"Please set in federated.yaml:\n"
 				"lora:\n"
-				"  base_model_path: \"checkpoints/your_model/server/round_X.pth\""
+				"  base_model_path: \"models/your_model/weights/server/round_X.pth\""
 			)
 
 		# 规则1: 验证基模路径是否存在

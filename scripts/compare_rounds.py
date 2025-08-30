@@ -52,7 +52,7 @@ def _maybe_resize_text_embedding(model: nn.Module, sd: dict):
 
 def _load_full(model, ckpt_path: Path):
     """加载完整模型权重（非 LoRA），并自动做 embedding 尺寸对齐 + 过滤不匹配键"""
-    obj = torch.load(ckpt_path, map_location="cpu")
+    obj = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     sd = obj.get("state_dict") if isinstance(obj, dict) else None
     if sd is None:
         sd = obj
@@ -177,21 +177,21 @@ def imdb_auc(model, loader, device):
 # ---------------- 主流程：多轮对比 ----------------
 def main():
     ap = argparse.ArgumentParser("Compare metrics across rounds for a single run")
-    ap.add_argument("--run-dir", required=True, help="例如 outputs/checkpoints/mnist_mlp_2025xxxx")
+    ap.add_argument("--run-dir", required=True, help="例如 outputs/models/mnist_mlp_2025xxxx")
     ap.add_argument("--rounds", help="逗号分隔，如 1,2,3；缺省则自动找该 run 的所有 round_*.pth")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-root", default="outputs/viz")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
-    server_dir = run_dir if run_dir.name == "server" else (run_dir / "server")
+    server_dir = run_dir / "weights" / "server"
 
-    # 找到该 run 下所有 round_*.pth
-    patt = re.compile(r"round_(\d+)\.pth$")
+    # 找到该 run 下所有 round_*.pth 或 lora_round_*.pth
+    patt = re.compile(r"(lora_)?round_(\d+)\.pth$")
     found = sorted(
         [
-            (int(m.group(1)), p)
-            for p in server_dir.glob("round_*.pth")
+            (int(m.group(2)), p)
+            for p in server_dir.glob("*round_*.pth")
             for m in [patt.fullmatch(p.name)]
             if m
         ],

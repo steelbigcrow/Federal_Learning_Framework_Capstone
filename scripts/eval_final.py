@@ -281,16 +281,11 @@ def main():
     if dataset == "mnist":
         loader = get_mnist_test_loader()
         acc, cm, y, p = eval_mnist(model, loader, device=args.device)
-        (outdir / "metrics.json").write_text(json.dumps(
-            {"dataset": "mnist", "accuracy": float(acc)}, indent=2, ensure_ascii=False), encoding="utf-8")
         plot_mnist(outdir, acc, cm, y, p, mis_limit=args.mis_limit)
         print(f"[MNIST] acc={acc:.4f}  → {outdir}")
     else:
         loader = get_imdb_test_loader(pad_idx=pad_idx)
         roc_auc, pr_auc, roc, pr = eval_imdb(model, loader, device=args.device)
-        (outdir / "metrics.json").write_text(json.dumps(
-            {"dataset": "imdb", "roc_auc": float(roc_auc), "pr_auc": float(pr_auc)}, indent=2, ensure_ascii=False),
-            encoding="utf-8")
         plot_imdb(outdir, roc_auc, pr_auc, roc, pr)
         print(f"[IMDB] ROC-AUC={roc_auc:.4f} PR-AUC={pr_auc:.4f}  → {outdir}")
 

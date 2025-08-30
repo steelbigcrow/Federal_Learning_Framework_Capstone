@@ -105,8 +105,6 @@ def _auto_eval_after_training(arch_config: str, train_config: str, use_lora_flag
     num_rounds = int((cfg.get("federated") or {}).get("num_rounds", 5))
     use_lora = bool(use_lora_flag) or bool(cfg.get("use_lora"))
     run_name = cfg.get("run_name") or Path(arch_config).stem
-    viz_dir = outputs_root / "viz" / (viz_name or run_name)
-    viz_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt, why = _pick_ckpt(outputs_root, run_name, num_rounds, is_lora=use_lora, started_at=started_at)
     if ckpt is None:
@@ -114,6 +112,13 @@ def _auto_eval_after_training(arch_config: str, train_config: str, use_lora_flag
         return
 
     print(f"[auto-eval] FOUND: {ckpt}  ({why})")
+    
+    # 从checkpoint路径推导出对应的plots子目录
+    # ckpt路径格式: outputs/checkpoints/model_timestamp/server/round_N.pth 或 outputs/loras/model_lora_timestamp/server/lora_round_N.pth
+    ckpt_parent = ckpt.parent.parent  # 从 server/round_N.pth 回到 model_timestamp 目录
+    model_run_dir = ckpt_parent.name  # 获取带时间戳的运行目录名
+    viz_dir = outputs_root / "plots" / model_run_dir / "server"
+    viz_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         sys.executable, "scripts/eval_final.py",

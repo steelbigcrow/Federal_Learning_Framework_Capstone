@@ -224,17 +224,14 @@ def main():
 	if args.auto_eval:
 		print("\n[auto-eval] Starting automatic evaluation...")
 		try:
-			from src.evaluation import ModelEvaluator
+			from src.evaluation import auto_evaluate_training
 			
-			evaluator = ModelEvaluator(
+			success = auto_evaluate_training(
 				arch_config_path=args.arch_config,
-				outputs_root=cfg.get('logging', {}).get('root', './outputs'),
-				device=str(device)
-			)
-			
-			success = evaluator.auto_evaluate_after_training(
 				train_config_path=args.train_config,
 				use_lora=use_lora,
+				device=str(device),
+				outputs_root=cfg.get('logging', {}).get('root', './outputs'),
 				run_name=cfg.get('run_name'),
 				started_at=training_start_time
 			)

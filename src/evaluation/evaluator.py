@@ -27,20 +27,43 @@ from .visualizer import visualize_results
 class ModelEvaluator:
     """Handles model evaluation for both standard and LoRA models."""
     
-    def __init__(self, arch_config_path: str, outputs_root: str = "./outputs", device: str = None):
+    def __init__(self, device: str = None, outputs_root: str = "./outputs"):
         """
-        Initialize model evaluator.
+        Initialize model evaluator with minimal parameters.
+        
+        Args:
+            device: Device to run evaluation on (auto-detect if None)
+            outputs_root: Root directory for outputs
+        """
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.outputs_root = Path(outputs_root)
+        
+        # These will be set when loading configs
+        self.arch_config = None
+        self.arch_config_path = None
+        self.dataset_name = None
+        self.model_name = None
+    
+    @classmethod
+    def from_configs(cls, arch_config_path: str, train_config_path: str = None, **kwargs):
+        """
+        Factory method to create evaluator from configuration files.
         
         Args:
             arch_config_path: Path to architecture configuration file
-            outputs_root: Root directory for outputs
-            device: Device to run evaluation on (auto-detect if None)
+            train_config_path: Path to training configuration file (optional)
+            **kwargs: Additional arguments for evaluator initialization
+            
+        Returns:
+            ModelEvaluator instance with loaded configurations
         """
+        evaluator = cls(**kwargs)
+        evaluator._load_arch_config(arch_config_path)
+        return evaluator
+    
+    def _load_arch_config(self, arch_config_path: str):
+        """Load and validate architecture configuration."""
         self.arch_config_path = Path(arch_config_path)
-        self.outputs_root = Path(outputs_root)
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Load architecture config
         self.arch_config = self._read_yaml(self.arch_config_path)
         self.dataset_name = (self.arch_config.get("dataset") or "").lower()
         self.model_name = (self.arch_config.get("model") or "").lower()
@@ -48,10 +71,33 @@ class ModelEvaluator:
         if not self.dataset_name or not self.model_name:
             raise ValueError(f"Architecture config missing dataset/model: {self.arch_config_path}")
     
+    def evaluate(self, checkpoint_path: str, arch_config_path: str = None, 
+                lora_checkpoint_path: str = None, output_dir: str = None, **kwargs) -> Dict[str, Any]:
+        """
+        Unified evaluation interface that handles all evaluation scenarios.
+        
+        Args:
+            checkpoint_path: Path to main model checkpoint
+            arch_config_path: Path to architecture config (required if not set via from_configs)
+            lora_checkpoint_path: Path to LoRA adapter checkpoint (optional)
+            output_dir: Directory to save evaluation results (auto-generate if None)
+            **kwargs: Additional arguments for evaluation
+            
+        Returns:
+            Dictionary containing evaluation results
+        """
+        # Load arch config if not already loaded
+        if self.arch_config is None:
+            if arch_config_path is None:
+                raise ValueError("Architecture config must be provided either via from_configs() or arch_config_path parameter")
+            self._load_arch_config(arch_config_path)
+        
+        return self.evaluate_from_checkpoint(checkpoint_path, lora_checkpoint_path, output_dir, **kwargs)
+    
     def evaluate_from_checkpoint(self, checkpoint_path: str, lora_checkpoint_path: str = None,
                                 output_dir: str = None, **kwargs) -> Dict[str, Any]:
         """
-        Evaluate model from checkpoint files.
+        Evaluate model from checkpoint files (requires arch_config to be loaded).
         
         Args:
             checkpoint_path: Path to main model checkpoint
@@ -62,6 +108,9 @@ class ModelEvaluator:
         Returns:
             Dictionary containing evaluation results
         """
+        if self.arch_config is None:
+            raise RuntimeError("Architecture config must be loaded first. Use evaluate() method or from_configs() factory.")
+        
         # Create model
         model = self._build_model()
         
@@ -92,13 +141,14 @@ class ModelEvaluator:
         
         return results
     
-    def auto_evaluate_after_training(self, train_config_path: str, use_lora: bool = False,
-                                   run_name: str = None, started_at: float = None) -> bool:
+    def auto_evaluate_after_training(self, train_config_path: str, arch_config_path: str = None,
+                                   use_lora: bool = False, run_name: str = None, started_at: float = None) -> bool:
         """
         Automatically evaluate model after training completion.
         
         Args:
             train_config_path: Path to training configuration file
+            arch_config_path: Path to architecture config (required if not set via from_configs)
             use_lora: Whether LoRA was used in training
             run_name: Name of training run
             started_at: Training start timestamp for filtering checkpoints
@@ -106,6 +156,12 @@ class ModelEvaluator:
         Returns:
             True if evaluation completed successfully, False otherwise
         """
+        # Load arch config if not already loaded
+        if self.arch_config is None:
+            if arch_config_path is None:
+                raise ValueError("Architecture config must be provided either via from_configs() or arch_config_path parameter")
+            self._load_arch_config(arch_config_path)
+        
         # Load training config
         train_config = self._read_yaml(Path(train_config_path))
         

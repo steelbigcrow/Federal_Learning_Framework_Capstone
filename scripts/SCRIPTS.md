@@ -10,10 +10,11 @@
 scripts/
 ├── fed_train.py                 # 联邦训练主脚本（支持自动评估）
 ├── inspect_checkpoint.py        # 检查点检查脚本
-├── eval_final.py                # 离线评测：加载全局权重/基模+LoRA，在 datasets 测试集上推理并出图
 ├── compare_rounds.py            # 多轮对比：遍历 server/round_*.pth 逐轮评测，画"指标-轮次"曲线
 └── SCRIPTS.MD          # 本文档
 ```
+
+**注意：** `eval_final.py` 脚本已被移除，其功能已完全整合到 `src.evaluation` 模块中。如需单独评估检查点，可通过编程方式使用 `src.evaluation.evaluate_checkpoint()` 函数。
 
 ## 各脚本详细说明
 
@@ -24,6 +25,7 @@ scripts/
 - 支持标准联邦学习和LoRA微调模式
 - 处理MNIST和IMDB数据集
 - 提供完整的训练流程和日志记录
+- **集成自动评估功能**（推荐使用 `--auto-eval`）
 
 **命令行参数：**
 - `--arch-config`: 架构配置文件路径（必需）
@@ -31,7 +33,7 @@ scripts/
 - `--use-lora`: 启用LoRA微调模式
 - `--no-cache`: 禁用数据缓存
 - `--data-cache-dir`: 指定数据缓存目录（默认: ./data_cache）
-- `--auto-eval`: 启用训练后自动评估（推荐使用）
+- `--auto-eval`: 启用训练后自动评估（**推荐使用**）
 - `--override`: 覆盖配置文件参数（格式: key=value key2=value2）
 
 **使用示例：**
@@ -59,107 +61,43 @@ python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-co
 **命令行参数：**
 - `--path`: 检查点文件路径（必需，支持.pth和.pt格式）
 
-### 3. 离线评测工具
+## 评估功能
 
-#### eval_final.py - 加载全局权重（或基模+LoRA）并在 datasets 测试集评测
-**主要功能：**
-- 读取非 LoRA全量权重（server/round_*.pth）或LoRA（基模 + lora_round_*.pth）
-- 在 Hugging Face datasets 的官方测试集上自动评测：MNIST：混淆矩阵、每类准确率、误分类样例 ;IMDB：ROC 曲线、PR 曲线
-- GPU/CPU 自适应（--device cuda/cpu）
+### 集成评估（推荐）
 
-**核心特性：**
-- 自动根据 --arch-config 推断任务与模型并构建网络
-- 兼容性加载：对参数名/形状不完全一致时尽量过滤/扩容后加载，避免因小改动报错
-- 支持大型模型文件的内存优化加载
-
-**使用示例：**
-```bash
-# 非 LoRA：MNIST-MLP
-python scripts/eval_final.py \
-  --arch-config configs/arch/mnist_mlp.yaml \
-  --checkpoint outputs/checkpoints/mnist_mlp_20250823_203138/server/round_2.pth \
-  --outdir outputs/viz/mnist_mlp_20250823_203138/round_2 \
-  --device cuda
-
-# LoRA：IMDB-RNN（基模 + LoRA 适配器）
-python scripts/eval_final.py \
-  --arch-config configs/arch/imdb_rnn.yaml \
-  --checkpoint outputs/checkpoints/imdb_rnn_20250823_213408/server/round_1.pth \
-  --lora-ckpt outputs/loras/imdb_rnn_lora_20250823_221050/server/lora_round_3.pth \
-  --outdir outputs/viz/imdb_rnn_lora_20250823_221050/round_3 \
-  --device cuda
-```
-
-**命令行参数：**
-- `--path`: 检查点文件路径（必需，支持.pth和.pt格式）
-- `--arch-config`：架构配置路径（必需）
-
-- `--checkpoint`：评测用 checkpoint；非 LoRA=全量权重，LoRA=基模权重（必需）
-
-- `--lora-ckpt`：LoRA 适配器权重（仅 LoRA 场景需要）
-
-- `--outdir`：评测输出目录（必需）
-
-- `--device`：cuda / cpu（默认自动）
-
-- `--mis-limit`：MNIST 误分类展示上限（默认 36）
-
-### 4. 多轮结果对比
-
-#### compare_rounds.py - 遍历 server/round_*.pth 逐轮评测并画曲线
-**主要功能：**
-- 针对一次训练运行（一个 run 目录），把 server/round_*.pth 逐轮评测： MNIST：Accuracy vs Round ；MDB：ROC-AUC / PR-AUC vs Round
-
-- 导出曲线图与 metrics.json（逐轮指标明细）。
-
-**核心特性：**
-- 自动从 run 目录名与 sidecar json 推断模型与任务。
-- 支持选择特定轮次（如 --rounds 1,3,5）。
-- 与 eval_final.py 同样具备兼容性加载。
-
-**使用示例：**
-```bash
-# 对比 MNIST 某次训练的所有轮次
-python scripts/compare_rounds.py \
-  --run-dir outputs/checkpoints/mnist_mlp_20250823_203138 \
-  --device cuda
-
-# 只对比 IMDB 的第 1、3 轮
-python scripts/compare_rounds.py \
-  --run-dir outputs/checkpoints/imdb_rnn_20250823_213408 \
-  --rounds 1,3 \
-  --device cuda
-```
-
-**命令行参数：**
-- `--path`: 检查点文件路径（必需，支持.pth和.pt格式）
-- `--run-dir`：一次训练的 run 目录（形如 outputs/checkpoints/<name_时间戳> 或其下的 server/ 目录）（必需）
-
-- `--rounds`：逗号分隔的轮次子集（可选；默认所有轮次）
-
-- `--device`：cuda/cpu（默认自动）
-
-- `--out-root`：输出根目录（默认 outputs/viz；最终会写入 <out-root>/<run_name>/compare_rounds/）
-
-### 5. 训练 + 自动评测（集成功能）
-
-现在`fed_train.py`已经集成了自动评估功能，使用`--auto-eval`参数即可实现训练后自动评测：
+现在所有评估功能都已整合到 `fed_train.py` 中，使用 `--auto-eval` 参数即可实现训练后自动评测：
 
 ```bash
 # 标准训练（MNIST-MLP）2 轮并自动评测
-python scripts/fed_train.py \
-  --arch-config configs/arch/mnist_mlp.yaml \
-  --train-config configs/federated.yaml \
-  --auto-eval \
-  --override run_name=mnist_mlp_base federated.num_rounds=2 federated.local_epochs=1
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --auto-eval
 
 # LoRA 训练（IMDB-RNN）3 轮并自动评测
-python scripts/fed_train.py \
-  --arch-config configs/arch/imdb_rnn.yaml \
-  --train-config configs/federated.yaml \
-  --use-lora \
-  --auto-eval \
-  --override run_name=imdb_rnn_lora federated.num_rounds=3 federated.local_epochs=1
+python scripts/fed_train.py --arch-config configs/arch/imdb_rnn.yaml --train-config configs/federated.yaml --use-lora --auto-eval
+```
+
+### 编程式评估
+
+如需在代码中进行评估，可使用 `src.evaluation` 模块提供的便捷函数：
+
+```python
+# 评估单个检查点
+from src.evaluation import evaluate_checkpoint
+
+results = evaluate_checkpoint(
+    arch_config_path="configs/arch/mnist_mlp.yaml",
+    checkpoint_path="outputs/checkpoints/mnist_mlp_20250823_203138/server/round_2.pth",
+    output_dir="outputs/viz/mnist_mlp_evaluation"
+)
+
+# 训练后自动评估
+from src.evaluation import auto_evaluate_training
+
+success = auto_evaluate_training(
+    arch_config_path="configs/arch/mnist_mlp.yaml", 
+    train_config_path="configs/federated.yaml",
+    use_lora=False,
+    device="cuda"
+)
 ```
 ## 工作流程
 
@@ -171,7 +109,7 @@ python scripts/fed_train.py \
    - LoRA配置集成在federated.yaml中，无需单独文件
 
 2. **模型训练阶段**：
-   - 使用 `fed_train.py --auto-eval` 执行联邦学习训练和自动评估（推荐）
+   - 使用 `fed_train.py --auto-eval` 执行联邦学习训练和自动评估（**推荐**）
    - 或使用 `fed_train.py` 执行训练后手动评估
    - 支持自动数据下载和缓存
    - 监控训练进度和性能指标
@@ -184,7 +122,11 @@ python scripts/fed_train.py \
 
 ### 脚本依赖关系
 
-```
+所有评估功能现已整合到 `src.evaluation` 模块中，通过以下方式访问：
+- **集成评估**: `fed_train.py --auto-eval`（推荐）
+- **编程评估**: `src.evaluation.evaluate_checkpoint()` 和 `src.evaluation.auto_evaluate_training()`
+- **多轮对比**: `compare_rounds.py`
+
 ## 配置要求
 
 ### 环境依赖
@@ -203,4 +145,5 @@ python scripts/fed_train.py \
 - 检查点：`./outputs/checkpoints/`
 - LoRA权重：`./outputs/loras/`
 - 训练日志：`./outputs/logs/`
+- 评估结果：`./outputs/plots/`
 - 数据缓存：`./data_cache/`

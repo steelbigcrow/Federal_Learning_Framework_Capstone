@@ -45,6 +45,7 @@ def main():
 	parser.add_argument('--use-lora', action='store_true', help='Enable LoRA fine-tuning')
 	parser.add_argument('--no-cache', action='store_true', help='Disable data caching, load directly from HF')
 	parser.add_argument('--data-cache-dir', type=str, default='./data_cache', help='Data cache directory')
+	parser.add_argument('--auto-eval', action='store_true', help='Automatically evaluate model after training')
 	args = parser.parse_args()
 
 	# 加载配置文件（只使用双配置方式）
@@ -211,7 +212,37 @@ def main():
 
 	# 创建联邦学习服务器并开始训练
 	server = Server(lambda: deepcopy(global_model), clients, pm, device=str(device), lora_cfg=lora_cfg_effective, save_client_each_round=save_client_each_round, model_info=model_info)
+	
+	# 记录训练开始时间（用于自动评估）
+	import time
+	training_start_time = time.time()
+	
+	# 执行联邦学习训练
 	server.run(num_rounds, local_epochs)
+	
+	# 自动评估（如果启用）
+	if args.auto_eval:
+		print("\n[auto-eval] Starting automatic evaluation...")
+		try:
+			from src.evaluation import ModelEvaluator
+			
+			evaluator = ModelEvaluator(
+				arch_config_path=args.arch_config,
+				outputs_root=cfg.get('logging', {}).get('root', './outputs'),
+				device=str(device)
+			)
+			
+			success = evaluator.auto_evaluate_after_training(
+				train_config_path=args.train_config,
+				use_lora=use_lora,
+				run_name=cfg.get('run_name'),
+				started_at=training_start_time
+			)
+			
+			if not success:
+				print("[auto-eval] Automatic evaluation failed.")
+		except Exception as e:
+			print(f"[auto-eval] Error during automatic evaluation: {e}")
 
 
 if __name__ == '__main__':

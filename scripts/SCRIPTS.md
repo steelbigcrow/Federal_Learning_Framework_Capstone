@@ -8,11 +8,10 @@
 
 ```
 scripts/
-├── fed_train.py                 # 联邦训练主脚本
+├── fed_train.py                 # 联邦训练主脚本（支持自动评估）
 ├── inspect_checkpoint.py        # 检查点检查脚本
 ├── eval_final.py                # 离线评测：加载全局权重/基模+LoRA，在 datasets 测试集上推理并出图
-├── compare_rounds.py            # 多轮对比：遍历 server/round_*.pth 逐轮评测，画“指标-轮次”曲线
-└── fed_train_auto.py            # 训练+自动评测：先跑 fed_train，再自动调用 eval_final
+├── compare_rounds.py            # 多轮对比：遍历 server/round_*.pth 逐轮评测，画"指标-轮次"曲线
 └── SCRIPTS.MD          # 本文档
 ```
 
@@ -32,14 +31,18 @@ scripts/
 - `--use-lora`: 启用LoRA微调模式
 - `--no-cache`: 禁用数据缓存
 - `--data-cache-dir`: 指定数据缓存目录（默认: ./data_cache）
+- `--auto-eval`: 启用训练后自动评估（推荐使用）
 - `--override`: 覆盖配置文件参数（格式: key=value key2=value2）
 
 **使用示例：**
 ```bash
-# LoRA微调模式
-python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --use-lora
+# 标准训练模式（带自动评估）
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --auto-eval
 
-# 标准训练模式
+# LoRA微调模式（带自动评估）  
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --use-lora --auto-eval
+
+# 标准训练模式（不带评估）
 python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml
 
 # 禁用数据缓存
@@ -138,41 +141,26 @@ python scripts/compare_rounds.py \
 
 - `--out-root`：输出根目录（默认 outputs/viz；最终会写入 <out-root>/<run_name>/compare_rounds/）
 
-### 5. 训练 + 自动评测（一步到位）
+### 5. 训练 + 自动评测（集成功能）
 
-#### fed_train_auto.py - 先训练，再自动调用 eval_final.py
-**主要功能：**
-- 完整封装一次流程：训练完成后自动评测。
-- 非 LoRA：自动寻找 outputs/checkpoints/**/server/round_R.pth（R 为配置里的 num_rounds）。
-- LoRA：自动寻找 outputs/loras/**/server/lora_round_R.pth，并从 configs/federated.yaml > lora.base_model_path 读取基模。
+现在`fed_train.py`已经集成了自动评估功能，使用`--auto-eval`参数即可实现训练后自动评测：
 
-**核心特性：**
-- 参数与 fed_train.py 完全一致（可以直接把命令里的文件名从 fed_train.py 换成 fed_train_auto.py）。
-- 自动决定调用 eval_final.py 的参数（包括 LoRA/非 LoRA 分支）。
-
-**使用示例：**
 ```bash
 # 标准训练（MNIST-MLP）2 轮并自动评测
-python scripts/fed_train_auto.py \
+python scripts/fed_train.py \
   --arch-config configs/arch/mnist_mlp.yaml \
   --train-config configs/federated.yaml \
+  --auto-eval \
   --override run_name=mnist_mlp_base federated.num_rounds=2 federated.local_epochs=1
 
 # LoRA 训练（IMDB-RNN）3 轮并自动评测
-# 注意：在 configs/federated.yaml 中需先设置 lora.base_model_path 指向一份基模 server/round_*.pth
-python scripts/fed_train_auto.py \
+python scripts/fed_train.py \
   --arch-config configs/arch/imdb_rnn.yaml \
   --train-config configs/federated.yaml \
   --use-lora \
+  --auto-eval \
   --override run_name=imdb_rnn_lora federated.num_rounds=3 federated.local_epochs=1
-
 ```
-
-**命令行参数：**
-- `--path`: 检查点文件路径（必需，支持.pth和.pt格式） 
-- 与`fed_train.py` 一致：--arch-config、--train-config、--override、--use-lora、--no-cache、--data-cache-dir 等
-
-- 有`--viz-name（可选）`：自定义评测输出目录名（默认使用 run_name）
 ## 工作流程
 
 ### 联邦学习训练完整流程
@@ -183,14 +171,16 @@ python scripts/fed_train_auto.py \
    - LoRA配置集成在federated.yaml中，无需单独文件
 
 2. **模型训练阶段**：
-   - 使用 `fed_train.py` 执行联邦学习训练
+   - 使用 `fed_train.py --auto-eval` 执行联邦学习训练和自动评估（推荐）
+   - 或使用 `fed_train.py` 执行训练后手动评估
    - 支持自动数据下载和缓存
    - 监控训练进度和性能指标
    - 自动保存检查点和日志
 
 3. **结果分析阶段**：
+   - 自动评估生成可视化结果（使用 --auto-eval）
    - 使用 `inspect_checkpoint.py` 检查训练结果
-   - 分析模型性能和收敛情况
+   - 使用 `compare_rounds.py` 进行多轮对比分析
 
 ### 脚本依赖关系
 

@@ -40,13 +40,13 @@ Federal Learning Framework/
 │  ├─ federated/                     # 联邦核心（Client/Server/Aggregator）
 │  ├─ models/                        # 模型定义 & 注册器
 │  ├─ training/                      # 训练 & LoRA 工具
+│  ├─ evaluation/                    # 评估模块（ModelEvaluator、可视化工具）
 │  └─ utils/                         # 通用工具
 ├─ scripts/
-│  ├─ fed_train.py                   # 联邦训练主脚本
+│  ├─ fed_train.py                   # 联邦训练主脚本（支持自动评估）
 │  ├─ inspect_checkpoint.py          # 检查点查看工具
 │  ├─ eval_final.py                  # 离线评测：加载全局权重/基模+LoRA，在 datasets 测试集上推理并出图
-│  ├─ compare_rounds.py              # 多轮对比：遍历 server/round_*.pth 逐轮评测，画“指标-轮次”曲线（非 LoRA）
-│  └─ fed_train_auto.py              # 训练+自动评测：先跑 fed_train，再自动调用 eval_final
+│  └─ compare_rounds.py              # 多轮对比：遍历 server/round_*.pth 逐轮评测，画"指标-轮次"曲线
 └─ outputs/
    ├─ checkpoints/                   # 标准训练权重（server/round_*.pth）
    ├─ loras/                         # LoRA 权重（server/lora_round_*.pth）
@@ -77,21 +77,21 @@ pip install -r requirements.txt
 - **架构配置**（`configs/arch/`）：定义数据集和模型结构参数
 - **训练配置**（`configs/federated.yaml`）：定义联邦学习超参数、LoRA设置等
 
-**示例 A：IMDB + Transformer 联邦 LoRA 微调**
+**示例 A：IMDB + Transformer 联邦 LoRA 微调（带自动评估）**
 
-```terminal
-python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml --use-lora
+```bash
+python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml --use-lora --auto-eval
 ```
 
-**示例 B：MNIST + MLP 标准联邦训练**
+**示例 B：MNIST + MLP 标准联邦训练（带自动评估）**
 
-```terminal
+```bash
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --auto-eval
+```
+
+**示例 C：MNIST + MLP 标准联邦训练（不带自动评估，仅训练）**
+```bash
 python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml
-```
-
-**示例 C：MNIST + MLP 标准联邦训练 + 自动评测**
-```terminal
-python scripts/fed_train_auto.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml
 ```
 
 
@@ -176,8 +176,8 @@ python scripts/fed_train_auto.py --arch-config configs/arch/mnist_mlp.yaml --tra
 - **训练配置** (`configs/federated.yaml`)：定义联邦学习超参数、LoRA设置等
 
 **自动化评测**：
-- `fed_train_auto.py`：结合训练和评测的一键式工具
-- `eval_final.py`：最终模型性能评测，支持标准模型和LoRA模型
+- `fed_train.py --auto-eval`：集成的训练和评估工具，推荐使用
+- `eval_final.py`：独立的最终模型性能评测，支持标准模型和LoRA模型
 - `compare_rounds.py`：多轮次性能对比分析
 
 ### 数据分区策略

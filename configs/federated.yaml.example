@@ -5,9 +5,11 @@ run_name: "federated_run"
 seed: 42
 
 # 训练模式配置：
-# - 基模训练: use_lora=false, base_model_path=null
-# - LoRA微调: use_lora=true, base_model_path=必须指定有效路径
+# - 基模训练: use_lora=false, use_adalora=false
+# - LoRA微调: use_lora=true, use_adalora=false, base_model_path=必须指定有效路径
+# - AdaLoRA微调: use_lora=false, use_adalora=true, base_model_path=必须指定有效路径
 use_lora: false
+use_adalora: false
 
 lora:
   r: 8
@@ -18,6 +20,29 @@ lora:
   # LoRA微调必须指定基模路径（相对于outputs目录）
   # 示例: "models/mnist_mlp_20231215_143022/weights/server/round_10.pth"
   # 注意：只有在LoRA模式下才需要设置此字段，不支持命令行覆盖
+  base_model_path: null
+
+adalora:
+  # AdaLoRA配置（仅在use_adalora=true时生效）
+  initial_r: 8                    # 初始LoRA秩
+  target_rank: 4                  # 目标平均秩
+  init_warmup: 125                # 初始预热步数
+  final_warmup: 375              # 最终微调步数
+  mask_interval: 10               # 预算分配间隔
+  beta1: 0.85                     # 重要性分数EMA系数
+  beta2: 0.85                     # 不确定性EMA系数
+  total_rank: null                # 总秩预算（null表示自动计算）
+  orth_regu_weight: 0.1           # 正交正则化权重
+  log_interval: 500               # 日志记录间隔
+  
+  # 继承基础LoRA配置
+  alpha: 16
+  dropout: 0.05
+  target_modules: ["Linear", "Embedding"]
+  train_classifier_head: true
+  
+  # AdaLoRA微调必须指定基模路径（相对于outputs目录）
+  # 示例: "models/imdb_transformer_20250831_020435/weights/server/round_2.pth"
   base_model_path: null
 
 federated:

@@ -19,6 +19,7 @@ from src.utils import load_two_configs, build_argparser, validate_training_confi
 from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_label_shift, partition_imdb_label_shift
 from src.models import create_model
 from src.training import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
+from src.training.adalora_utils import inject_adalora_modules, mark_only_adalora_as_trainable, create_rank_allocator, get_adalora_parameter_stats
 from src.federated import Client, Server
 
 
@@ -37,6 +38,7 @@ def main():
 	# 设置命令行参数解析器
 	parser = build_argparser()
 	parser.add_argument('--use-lora', action='store_true', help='Enable LoRA fine-tuning')
+	parser.add_argument('--use-adalora', action='store_true', help='Enable AdaLoRA fine-tuning')
 	parser.add_argument('--no-cache', action='store_true', help='Disable data caching, load directly from HF')
 	parser.add_argument('--data-cache-dir', type=str, default='./data_cache', help='Data cache directory')
 	parser.add_argument('--auto-eval', action='store_true', help='Automatically evaluate model after training')
@@ -63,21 +65,35 @@ def main():
 	ds_name = cfg.get('dataset')
 	model_name = cfg.get('model')
 
-	# 检查LoRA使用情况（以配置文件为准，命令行参数作为额外确认）
+	# 检查LoRA和AdaLoRA使用情况（以配置文件为准，命令行参数作为额外确认）
 	config_use_lora = cfg.get('use_lora', False)
+	config_use_adalora = cfg.get('use_adalora', False)
+	
+	# 处理LoRA和AdaLoRA的互斥关系
+	if args.use_lora and args.use_adalora:
+		print("Error: Cannot specify both --use-lora and --use-adalora")
+		return
+	
 	if args.use_lora and not config_use_lora:
 		print("Warning: --use-lora specified but config use_lora=false, using config setting")
 	elif not args.use_lora and config_use_lora:
 		print("Warning: config use_lora=true but --use-lora not specified, consider keeping them consistent")
+	
+	if args.use_adalora and not config_use_adalora:
+		print("Warning: --use-adalora specified but config use_adalora=false, using config setting")
+	elif not args.use_adalora and config_use_adalora:
+		print("Warning: config use_adalora=true but --use-adalora not specified, consider keeping them consistent")
 
 	use_lora = config_use_lora
+	use_adalora = config_use_adalora
 	
 	# 创建路径管理器，用于管理输出文件路径
 	pm = PathManager(
 		root=cfg.get('logging', {}).get('root', './outputs'),
 		dataset_name=ds_name,
 		model_name=model_name,
-		use_lora=use_lora
+		use_lora=use_lora,
+		use_adalora=use_adalora
 	)
 
 	# 从配置中提取训练参数
@@ -122,13 +138,70 @@ def main():
 	else:
 		raise ValueError('Unknown dataset')
 
-	# 初始化LoRA配置变量
+	# 初始化LoRA和AdaLoRA配置变量
 	lora_cfg_effective = {}
+	adalora_cfg_effective = {}
 	base_model_metadata = {}
 
-	# LoRA和基模处理
+	# AdaLoRA和LoRA处理
 	replaced_modules = []
-	if use_lora:
+	
+	# AdaLoRA处理
+	if use_adalora:
+		adalora_cfg = cfg.get('adalora', {})
+
+		# 步骤1：加载基模（必须通过配置文件指定基模路径）
+		base_model_path = adalora_cfg.get('base_model_path')
+
+		if not base_model_path:
+			print("[Error] AdaLoRA微调必须在配置文件中指定 base_model_path")
+			print("[Error] 请在 configs/federated.yaml 的 adalora.base_model_path 中设置有效路径")
+			return
+
+		# 构建完整路径
+		if not os.path.isabs(base_model_path):
+			base_model_path = os.path.join(cfg.get('logging', {}).get('root', './outputs'), base_model_path)
+
+		try:
+			base_model_metadata = load_base_model_checkpoint(global_model, base_model_path, strict=False)
+			print(f"[AdaLoRA] Base model loaded successfully: {base_model_path}")
+		except Exception as e:
+			print(f"[Error] Failed to load base model: {e}")
+			print(f"[AdaLoRA] Will train from scratch")
+
+		# 步骤2：注入AdaLoRA模块
+		target_modules = adalora_cfg.get('target_modules', ['Linear', 'Embedding'])
+		replaced_modules = inject_adalora_modules(
+			global_model,
+			r=adalora_cfg.get('initial_r', 8),
+			alpha=adalora_cfg.get('alpha', 16),
+			dropout=adalora_cfg.get('dropout', 0.0),
+			target_modules=target_modules
+		)
+
+		# 步骤3：标记只有AdaLoRA参数可训练
+		mark_only_adalora_as_trainable(global_model, adalora_cfg.get('train_classifier_head', True))
+
+		# 步骤4：创建RankAllocator
+		rank_allocator = create_rank_allocator(global_model, adalora_cfg)
+
+		# 构建有效的AdaLoRA配置字典
+		adalora_cfg_effective = {
+			**adalora_cfg,
+			'replaced_modules': replaced_modules,
+			'base_model_path': base_model_path,
+			'base_model_metadata': base_model_metadata,
+			'rank_allocator': rank_allocator
+		}
+
+		print(f"[AdaLoRA] Injected AdaLoRA into {len(replaced_modules)} modules: {replaced_modules}")
+
+		# 显示模型参数统计信息
+		param_stats = get_adalora_parameter_stats(global_model)
+		print(f"[AdaLoRA] Total params: {param_stats['total_params']:,}, trainable params: {param_stats['trainable_params']:,} ({param_stats['trainable_percentage']:.2f}%)")
+
+	# LoRA处理
+	elif use_lora:
 		lora_cfg = cfg.get('lora', {})
 
 		# 步骤1：加载基模（必须通过配置文件指定基模路径）
@@ -205,7 +278,9 @@ def main():
 	}
 
 	# 创建联邦学习服务器并开始训练
-	server = Server(lambda: deepcopy(global_model), clients, pm, device=str(device), lora_cfg=lora_cfg_effective, save_client_each_round=save_client_each_round, model_info=model_info)
+	server = Server(lambda: deepcopy(global_model), clients, pm, device=str(device), 
+				   lora_cfg=lora_cfg_effective, adalora_cfg=adalora_cfg_effective, 
+				   save_client_each_round=save_client_each_round, model_info=model_info)
 	
 	# 记录训练开始时间（用于自动评估）
 	import time
@@ -224,6 +299,7 @@ def main():
 				arch_config_path=args.arch_config,
 				train_config_path=args.train_config,
 				use_lora=use_lora,
+				use_adalora=use_adalora,
 				device=str(device),
 				outputs_root=cfg.get('logging', {}).get('root', './outputs'),
 				run_name=cfg.get('run_name'),

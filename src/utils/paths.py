@@ -15,7 +15,7 @@ class PathManager:
 	- 基模训练模式：使用checkpoints目录存储权重文件
 	"""
 
-	def __init__(self, root: str = "./outputs", dataset_name: str = None, model_name: str = None, timestamp: str = None, use_lora: bool = False) -> None:
+	def __init__(self, root: str = "./outputs", dataset_name: str = None, model_name: str = None, timestamp: str = None, use_lora: bool = False, use_adalora: bool = False) -> None:
 		"""
 		初始化路径管理器
 
@@ -25,15 +25,20 @@ class PathManager:
 			model_name: 模型名称
 			timestamp: 时间戳，如果为None则自动生成
 			use_lora: 是否使用LoRA微调模式
+			use_adalora: 是否使用AdaLoRA微调模式
 		"""
 		self.root = root
 		self.dataset_name = dataset_name or "unknown"
 		self.model_name = model_name or "unknown"
 		self.timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
 		self.use_lora = use_lora
+		self.use_adalora = use_adalora
 
-		# 根据是否使用LoRA调整命名格式
-		if use_lora:
+		# 根据训练模式调整命名格式
+		if use_adalora:
+			self.run_name = f"{self.dataset_name}_{self.model_name}_adalora_{self.timestamp}"
+			self.model_type = "adaloras"
+		elif use_lora:
 			self.run_name = f"{self.dataset_name}_{self.model_name}_lora_{self.timestamp}"
 			self.model_type = "loras"
 		else:
@@ -115,7 +120,9 @@ class PathManager:
 		"""
 		client_dir = os.path.join(self.weights_clients_dir, f"client_{client_id}")
 		os.makedirs(client_dir, exist_ok=True)
-		if self.use_lora:
+		if self.use_adalora:
+			return os.path.join(client_dir, f"adalora_round_{round_id}.pth")
+		elif self.use_lora:
 			return os.path.join(client_dir, f"lora_round_{round_id}.pth")
 		else:
 			return os.path.join(client_dir, f"round_{round_id}.pth")
@@ -130,7 +137,9 @@ class PathManager:
 		Returns:
 			全局权重文件路径
 		"""
-		if self.use_lora:
+		if self.use_adalora:
+			return os.path.join(self.weights_server_dir, f"adalora_round_{round_id}.pth")
+		elif self.use_lora:
 			return os.path.join(self.weights_server_dir, f"lora_round_{round_id}.pth")
 		else:
 			return os.path.join(self.weights_server_dir, f"round_{round_id}.pth")

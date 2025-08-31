@@ -1,6 +1,6 @@
-# 联邦学习本地串行同步框架（PyTorch + LoRA）
+# 联邦学习本地串行同步框架（PyTorch + LoRA + AdaLoRA）
 
-PyTorch 实现的本地串行同步联邦学习框架，支持标准联邦学习和 LoRA 微调。
+PyTorch 实现的本地串行同步联邦学习框架，支持标准联邦学习、LoRA 微调和 AdaLoRA 微调。
 
 ## 特性
 
@@ -11,6 +11,7 @@ PyTorch 实现的本地串行同步联邦学习框架，支持标准联邦学习
 - **训练模式**：
   - 标准联邦训练（全参数训练）
   - LoRA 微调（仅训练 LoRA + 分类头）
+  - AdaLoRA 微调（动态秩分配的自适应微调）
 - **数据分布**：强制非独立同分布 Non-IID（10个客户端，与数据集类数匹配）
 - **优化导入**：所有模块支持简化的导入模式，减少约54%的导入语句，同时保持完全向后兼容性
 
@@ -90,6 +91,15 @@ python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-co
 python scripts/fed_train.py --arch-config configs/arch/imdb_rnn.yaml --train-config configs/federated.yaml --use-lora --auto-eval
 ```
 
+**AdaLoRA 微调训练：**
+```bash
+# MNIST MLP AdaLoRA 微调
+python scripts/fed_train.py --arch-config configs/arch/mnist_mlp.yaml --train-config configs/federated.yaml --use-adalora --auto-eval
+
+# IMDB Transformer AdaLoRA 微调
+python scripts/fed_train.py --arch-config configs/arch/imdb_transformer.yaml --train-config configs/federated.yaml --use-adalora --auto-eval
+```
+
 ### 4. 分析工具
 
 ```bash
@@ -156,10 +166,28 @@ outputs/
             ├── clients/          # 每个客户端的训练图表
             │   └── client_{id}/  # 单独客户端文件夹
             └── server/          # 服务器训练图表
+└── adaloras/      # AdaLoRA 适配器权重
+    └── {数据集}_{模型架构}_adalora_{时间戳}/
+        ├── weights/
+        │   ├── clients/          # 每个客户端的AdaLoRA权重
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 全局AdaLoRA权重
+        ├── logs/
+        │   ├── clients/          # 每个客户端的训练日志
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 服务器训练日志
+        ├── metrics/
+        │   ├── clients/          # 每个客户端的训练指标
+        │   │   └── client_{id}/  # 单独客户端文件夹
+        │   └── server/          # 服务器训练指标
+        └── plots/
+            ├── clients/          # 每个客户端的训练图表
+            │   └── client_{id}/  # 单独客户端文件夹
+            └── server/          # 服务器训练图表
 ```
 
 **结构说明**：
-- 每次运行在 `models/`（标准训练）或 `loras/`（LoRA训练）下创建时间戳文件夹
+- 每次运行在 `models/`（标准训练）、`loras/`（LoRA训练）或 `adaloras/`（AdaLoRA训练）下创建时间戳文件夹
 - 每个运行文件夹包含统一的四个子目录：`weights/`、`logs/`、`metrics/`、`plots/`
 - 每个子目录都包含 `clients/` 和 `server/` 两个子目录
 - `clients/` 目录下根据客户端数量创建对应数量的 `client_{id}/` 文件夹
@@ -173,6 +201,19 @@ outputs/
 - 仅训练 LoRA 参数（`lora_A`, `lora_B`）+ 分类头
 - 基模型参数在微调期间冻结
 - 需在 `federated.yaml` 中设置 `lora.base_model_path`
+
+## AdaLoRA 微调特性
+
+AdaLoRA (Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning) 提供动态秩分配的自适应微调：
+
+- **SVD-based 适配**：使用奇异值分解实现自适应秩分配
+- **动态预算管理**：根据参数重要性自动调整各层的秩预算
+- **正交正则化**：通过正交约束确保适配器的稳定性
+- **预热策略**：支持初始预热和最终微调两阶段训练
+- **配置灵活性**：可设置初始秩、目标秩、预热步数等参数
+- **独立运行**：与 LoRA 独立，通过 `use_adalora: true` 启用
+- **输出目录**：AdaLoRA 权重存储在 `outputs/adaloras/` 目录中
+- **基模型要求**：需在 `federated.yaml` 中设置 `adalora.base_model_path`
 
 ## 重要实现说明
 
@@ -198,6 +239,6 @@ outputs/
 ### 自动化评测
 - `fed_train.py --auto-eval`：集成的训练自动评估工具（推荐使用）
 - 自动生成训练曲线、性能指标和对比分析
-- 支持标准模型和 LoRA 模型的一致性评估
+- 支持标准模型、LoRA 模型和 AdaLoRA 模型的一致性评估
 
 框架专注于非IID联邦学习场景，具有自动设备检测、内存优化加载和CUDA优先支持。

@@ -6,11 +6,12 @@ from typing import Callable, Dict, List, Optional
 
 import torch
 
-from .aggregator import fedavg, lora_fedavg, get_trainable_keys
+from .aggregator import fedavg, lora_fedavg, adalora_fedavg, get_trainable_keys
 from ..training.checkpoints import save_client_round, save_global_round
 from ..training.logging_utils import write_metrics_json, write_text_log
 from ..training.plotting import plot_all_clients_metrics
 from ..training.lora_utils import save_lora_checkpoint
+from ..training.adalora_utils import save_adalora_checkpoint, get_adalora_regularization_loss
 from ..utils.paths import PathManager
 
 
@@ -21,7 +22,7 @@ class Server:
 	负责协调联邦学习过程、模型聚合、日志记录和检查点管理
 	"""
 
-	def __init__(self, model_ctor: Callable[[], torch.nn.Module], clients, path_manager: PathManager, device: str = 'cpu', lora_cfg: Optional[Dict] = None, save_client_each_round: bool = True, model_info: Optional[Dict] = None):
+	def __init__(self, model_ctor: Callable[[], torch.nn.Module], clients, path_manager: PathManager, device: str = 'cpu', lora_cfg: Optional[Dict] = None, adalora_cfg: Optional[Dict] = None, save_client_each_round: bool = True, model_info: Optional[Dict] = None):
 		"""
 		初始化联邦学习服务器
 
@@ -31,6 +32,7 @@ class Server:
 			path_manager: 路径管理器
 			device: 计算设备
 			lora_cfg: LoRA配置
+			adalora_cfg: AdaLoRA配置
 			save_client_each_round: 是否每轮保存客户端模型
 			model_info: 模型信息
 		"""
@@ -40,6 +42,7 @@ class Server:
 		self.device = device
 		self.global_model = model_ctor().to(device)
 		self.lora_cfg = lora_cfg or {}
+		self.adalora_cfg = adalora_cfg or {}
 		self.save_client_each_round = bool(save_client_each_round)
 		self.model_info = model_info or {}  # 存储模型类型和规格信息
 

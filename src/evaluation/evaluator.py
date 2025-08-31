@@ -142,7 +142,7 @@ class ModelEvaluator:
         return results
     
     def auto_evaluate_after_training(self, train_config_path: str, arch_config_path: str = None,
-                                   use_lora: bool = False, run_name: str = None, started_at: float = None) -> bool:
+                                   use_lora: bool = False, use_adalora: bool = False, run_name: str = None, started_at: float = None) -> bool:
         """
         Automatically evaluate model after training completion.
         
@@ -150,6 +150,7 @@ class ModelEvaluator:
             train_config_path: Path to training configuration file
             arch_config_path: Path to architecture config (required if not set via from_configs)
             use_lora: Whether LoRA was used in training
+            use_adalora: Whether AdaLoRA was used in training
             run_name: Name of training run
             started_at: Training start timestamp for filtering checkpoints
             
@@ -165,9 +166,12 @@ class ModelEvaluator:
         # Load training config
         train_config = self._read_yaml(Path(train_config_path))
         
+        # Determine if using LoRA or AdaLoRA
+        is_lora_mode = use_lora or use_adalora
+        
         # Find checkpoint to evaluate
         checkpoint_info = self._find_evaluation_checkpoint(
-            train_config, use_lora, run_name, started_at
+            train_config, is_lora_mode, use_adalora, run_name, started_at
         )
         
         if not checkpoint_info:
@@ -255,7 +259,7 @@ class ModelEvaluator:
         
         return get_test_loader(self.dataset_name, **loader_kwargs)
     
-    def _find_evaluation_checkpoint(self, train_config: Dict, use_lora: bool, 
+    def _find_evaluation_checkpoint(self, train_config: Dict, use_lora: bool, use_adalora: bool,
                                   run_name: str, started_at: float) -> Optional[Tuple[Path, Optional[Path], Path]]:
         """
         Find appropriate checkpoint for evaluation.
@@ -267,17 +271,23 @@ class ModelEvaluator:
         run_name = run_name or self.arch_config_path.stem
         
         # Find checkpoint
-        checkpoint_path = self._find_checkpoint(use_lora, run_name, num_rounds, started_at)
+        checkpoint_path = self._find_checkpoint(use_lora, use_adalora, run_name, num_rounds, started_at)
         if not checkpoint_path:
             return None
         
         # Determine paths
         lora_path = None
         if use_lora:
-            # For LoRA, we need both base model and LoRA adapter
-            base_model_path = (train_config.get("lora") or {}).get("base_model_path")
+            # For LoRA/AdaLoRA, we need both base model and adapter
+            if use_adalora:
+                base_model_path = (train_config.get("adalora") or {}).get("base_model_path")
+                config_name = "adalora.base_model_path"
+            else:
+                base_model_path = (train_config.get("lora") or {}).get("base_model_path")
+                config_name = "lora.base_model_path"
+            
             if not base_model_path:
-                print("[auto-eval] Missing lora.base_model_path in training config.")
+                print(f"[auto-eval] Missing {config_name} in training config.")
                 return None
             
             base_path = Path(base_model_path)
@@ -288,28 +298,36 @@ class ModelEvaluator:
                 print(f"[auto-eval] Base model not found: {base_path}")
                 return None
             
-            lora_path = checkpoint_path  # This is the LoRA checkpoint
+            lora_path = checkpoint_path  # This is the LoRA/AdaLoRA checkpoint
             checkpoint_path = base_path  # This becomes the base model path
         
         # Create output directory in plots structure
-        # For LoRA: use LoRA checkpoint path to determine directory
+        # For LoRA/AdaLoRA: use adapter checkpoint path to determine directory
         # For standard: use standard checkpoint path
         if use_lora:
-            lora_checkpoint_parent = lora_path.parent.parent.parent  # From server/lora_round_N.pth back to model_dir
+            lora_checkpoint_parent = lora_path.parent.parent.parent  # From server/round_N.pth back to model_dir
             model_run_dir = lora_checkpoint_parent.name
         else:
             checkpoint_parent = checkpoint_path.parent.parent.parent  # From server/round_N.pth back to model_dir  
             model_run_dir = checkpoint_parent.name
         
-        output_dir = self.outputs_root / ("loras" if use_lora else "models") / model_run_dir / "plots" / "server"
+        # Determine output directory based on mode
+        if use_adalora:
+            output_dir = self.outputs_root / "adaloras" / model_run_dir / "plots" / "server"
+        else:
+            output_dir = self.outputs_root / ("loras" if use_lora else "models") / model_run_dir / "plots" / "server"
         
         return checkpoint_path, lora_path, output_dir
     
-    def _find_checkpoint(self, is_lora: bool, run_name: str, num_rounds: int, 
+    def _find_checkpoint(self, is_lora: bool, use_adalora: bool, run_name: str, num_rounds: int, 
                         started_at: float) -> Optional[Path]:
         """Find the most appropriate checkpoint for evaluation."""
-        root = self.outputs_root / ("loras" if is_lora else "models")
-        target_pattern = f"weights/server/{'lora_' if is_lora else ''}round_{num_rounds}.pth"
+        if use_adalora:
+            root = self.outputs_root / "adaloras"
+            target_pattern = f"weights/server/adalora_round_{num_rounds}.pth"
+        else:
+            root = self.outputs_root / ("loras" if is_lora else "models")
+            target_pattern = f"weights/server/{'lora_' if is_lora else ''}round_{num_rounds}.pth"
         
         # Look for exact round in run-specific directories
         candidate_dirs = []
@@ -326,7 +344,7 @@ class ModelEvaluator:
         
         # Try latest available round
         for d in reversed(candidate_dirs):
-            available = self._get_all_round_checkpoints(d / "weights" / "server", is_lora)
+            available = self._get_all_round_checkpoints(d / "weights" / "server", is_lora, use_adalora)
             if available:
                 return available[-1][1]  # Return latest
         
@@ -346,9 +364,12 @@ class ModelEvaluator:
         
         return None
     
-    def _get_all_round_checkpoints(self, server_dir: Path, is_lora: bool):
+    def _get_all_round_checkpoints(self, server_dir: Path, is_lora: bool, use_adalora: bool = False):
         """Get all round checkpoints in a server directory."""
-        pattern = re.compile(rf"{'lora_' if is_lora else ''}round_(\d+)\.pth$")
+        if use_adalora:
+            pattern = re.compile(rf"adalora_round_(\d+)\.pth$")
+        else:
+            pattern = re.compile(rf"{'lora_' if is_lora else ''}round_(\d+)\.pth$")
         items = []
         
         if not server_dir.exists():

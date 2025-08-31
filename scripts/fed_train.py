@@ -15,17 +15,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import torch
 from torch.utils.data import DataLoader
 
-from src.utils.config import load_two_configs, build_argparser, validate_training_config
-from src.utils.seed import set_seed
-from src.utils.paths import PathManager
-from src.utils.device import get_device
-from src.datasets.mnist import get_mnist_datasets
-from src.datasets.imdb import get_imdb_splits
-from src.datasets.partition import partition_mnist_label_shift, partition_imdb_label_shift
-from src.models.registry import create_model
-from src.training.lora_utils import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
-from src.federated.client import Client
-from src.federated.server import Server
+from src.utils import load_two_configs, build_argparser, validate_training_config, set_seed, PathManager, get_device
+from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_label_shift, partition_imdb_label_shift
+from src.models import create_model
+from src.training import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
+from src.federated import Client, Server
 
 
 def main():
@@ -195,7 +189,7 @@ def main():
 
 	elif ds_name == 'imdb':
 		# 为IMDB数据集创建客户端
-		from src.datasets.text_utils import CollateText
+		from src.datasets import CollateText
 		for cid in range(num_clients):
 			train_list = parts[cid]  # 每个客户端的训练数据列表
 			collate = CollateText(text_to_ids, pad_idx, cfg.get('max_seq_len', 256))

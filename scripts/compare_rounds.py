@@ -89,7 +89,7 @@ def build_model_for_ckpt(run_dir: Path, ckpt: Path):
     2) 拿不到则从 run 目录名推断；
     3) 用 create_model(dataset, model, cfg, extra) 实例化模型。
     """
-    from src.models.registry import create_model
+    from src.models import create_model
 
     js = _read_sidecar_json(ckpt)
     dataset = model = None

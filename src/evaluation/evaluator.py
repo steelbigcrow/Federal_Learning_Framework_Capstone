@@ -191,7 +191,7 @@ class ModelEvaluator:
     
     def _build_model(self):
         """Build model from architecture configuration."""
-        from src.models.registry import create_model
+        from src.models import create_model
         
         extra = {}
         if self.dataset_name == "imdb":

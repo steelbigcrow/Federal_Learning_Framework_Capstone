@@ -267,10 +267,22 @@ class TestLoRATrainingStrategy:
         self.strategy = LoRATrainingStrategy()
         
         # 创建一个模拟的LoRA模型
-        self.model = nn.Linear(10, 2)
-        # 模拟LoRA参数
-        self.model.lora_A = nn.Parameter(torch.randn(5, 10))
-        self.model.lora_B = nn.Parameter(torch.randn(2, 5))
+        class MockLoRAModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                # 基础线性层
+                self.linear = nn.Linear(10, 2)
+                # LoRA参数
+                self.lora_A = nn.Parameter(torch.randn(5, 10), requires_grad=True)
+                self.lora_B = nn.Parameter(torch.randn(2, 5), requires_grad=True)
+                
+            def forward(self, x):
+                # 模拟LoRA修改：基础输出 + LoRA调整
+                base_output = self.linear(x)
+                lora_adjustment = self.lora_B @ self.lora_A @ x.t()
+                return base_output + lora_adjustment.t()
+        
+        self.model = MockLoRAModel()
         
         self.data = torch.randn(100, 10)
         self.targets = torch.randint(0, 2, (100,))
@@ -362,8 +374,9 @@ class TestLoRATrainingStrategy:
     
     def test_get_optimizer_only_trainable(self):
         """测试优化器只优化可训练参数"""
-        # 冻结一些参数
-        self.model.weight.requires_grad = False
+        # 冻结一些参数 - 冻结linear层的参数
+        self.model.linear.weight.requires_grad = False
+        self.model.linear.bias.requires_grad = False
         
         optimizer = self.strategy.get_optimizer(self.model, self.config)
         
@@ -372,6 +385,191 @@ class TestLoRATrainingStrategy:
         optimizer_params = list(optimizer.param_groups[0]['params'])
         
         assert len(optimizer_params) == len(trainable_params)
+    
+    def test_prepare_model_with_lora_layers(self):
+        """测试准备有LoRA层的模型"""
+        # 模型已经有LoRA层，应该成功
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        
+        # 应该返回相同的模型实例
+        assert prepared_model is self.model
+        
+        # 检查基础参数是否被冻结
+        for name, param in self.model.named_parameters():
+            if 'lora_' not in name.lower() and 'classifier' not in name.lower():
+                assert not param.requires_grad, f"基础参数 {name} 应该被冻结"
+            else:
+                assert param.requires_grad, f"LoRA参数 {name} 应该可训练"
+    
+    def test_prepare_model_without_lora_layers(self):
+        """测试准备没有LoRA层的模型"""
+        model_without_lora = nn.Linear(10, 2)
+        
+        with pytest.raises(StrategyError, match="模型没有应用LoRA层"):
+            self.strategy.prepare_model(model_without_lora, self.config)
+    
+    def test_train_model_basic(self):
+        """测试基本LoRA模型训练"""
+        # 准备模型
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, self.config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'lora_params_count' in metrics
+        
+        # 检查指标值是否合理
+        assert metrics['epochs_completed'] == self.config['epochs']
+        assert metrics['num_samples'] == len(self.dataset)
+        assert 0.0 <= metrics['accuracy'] <= 1.0
+        assert metrics['loss'] >= 0.0
+        assert metrics['lora_params_count'] > 0
+    
+    def test_train_model_multiple_epochs(self):
+        """测试多轮LoRA训练"""
+        config = self.config.copy()
+        config['epochs'] = 2
+        
+        prepared_model = self.strategy.prepare_model(self.model, config)
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, config)
+        
+        assert metrics['epochs_completed'] == 2
+        assert metrics['num_samples'] == len(self.dataset) * 2
+    
+    def test_train_model_empty_dataset(self):
+        """测试空数据集LoRA训练"""
+        empty_dataset = TensorDataset(torch.randn(0, 10), torch.randint(0, 2, (0,)))
+        empty_loader = DataLoader(empty_dataset, batch_size=16)
+        
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        metrics = self.strategy.train_model(prepared_model, empty_loader, self.config)
+        
+        # 空数据集应该返回默认值
+        assert metrics['loss'] == 0.0
+        assert metrics['accuracy'] == 0.0
+        assert metrics['f1_score'] == 0.0
+        assert metrics['num_samples'] == 0
+    
+    def test_evaluate_model(self):
+        """测试LoRA模型评估"""
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        metrics = self.strategy.evaluate_model(prepared_model, self.train_loader, self.config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'lora_params_count' in metrics
+        
+        # 检查指标值是否合理
+        assert metrics['num_samples'] == len(self.dataset)
+        assert 0.0 <= metrics['accuracy'] <= 1.0
+        assert metrics['loss'] >= 0.0
+        assert metrics['lora_params_count'] > 0
+    
+    def test_execute_with_context(self):
+        """测试使用上下文执行LoRA策略"""
+        context = {
+            'model': self.model,
+            'train_loader': self.train_loader,
+            'config': self.config
+        }
+        
+        metrics = self.strategy.execute(context)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'lora_params_count' in metrics
+    
+    def test_get_optimizer_adam(self):
+        """测试获取Adam优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'adam'
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.Adam)
+        assert optimizer.param_groups[0]['lr'] == config['lr']
+    
+    def test_get_optimizer_adamw(self):
+        """测试获取AdamW优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'adamw'
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.AdamW)
+    
+    def test_get_optimizer_sgd(self):
+        """测试获取SGD优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'sgd'
+        config['momentum'] = 0.9
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.SGD)
+        assert optimizer.param_groups[0]['momentum'] == 0.9
+    
+    def test_get_optimizer_invalid(self):
+        """测试获取无效优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'invalid'
+        
+        with pytest.raises(StrategyError, match="不支持的优化器类型"):
+            self.strategy.get_optimizer(self.model, config)
+    
+    def test_get_optimizer_no_trainable_params(self):
+        """测试没有可训练参数时获取优化器"""
+        # 冻结所有参数
+        for param in self.model.parameters():
+            param.requires_grad = False
+        
+        with pytest.raises(StrategyError, match="没有可训练的参数"):
+            self.strategy.get_optimizer(self.model, self.config)
+    
+    def test_train_model_with_mixed_precision(self):
+        """测试LoRA混合精度训练"""
+        config = self.config.copy()
+        config['use_amp'] = True  # 启用混合精度
+        
+        prepared_model = self.strategy.prepare_model(self.model, config)
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'lora_params_count' in metrics
+    
+    def test_get_config_schema(self):
+        """测试获取LoRA配置模式"""
+        schema = self.strategy.get_config_schema()
+        
+        assert isinstance(schema, dict)
+        assert "type" in schema
+        assert "properties" in schema
+        assert "required" in schema
+        
+        # 检查LoRA特有的属性
+        properties = schema['properties']
+        assert 'base_model_path' in properties
+        assert 'use_amp' in properties
+        
+        # 检查必需字段
+        assert 'base_model_path' in schema['required']
 
 
 class TestAdaLoRATrainingStrategy:
@@ -382,10 +580,22 @@ class TestAdaLoRATrainingStrategy:
         self.strategy = AdaLoRATrainingStrategy()
         
         # 创建一个模拟的AdaLoRA模型
-        self.model = nn.Linear(10, 2)
-        # 模拟AdaLoRA参数
-        self.model.adalora_A = nn.Parameter(torch.randn(5, 10))
-        self.model.adalora_B = nn.Parameter(torch.randn(2, 5))
+        class MockAdaLoRAModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                # 基础线性层
+                self.linear = nn.Linear(10, 2)
+                # AdaLoRA参数
+                self.adalora_A = nn.Parameter(torch.randn(5, 10), requires_grad=True)
+                self.adalora_B = nn.Parameter(torch.randn(2, 5), requires_grad=True)
+                
+            def forward(self, x):
+                # 模拟AdaLoRA修改：基础输出 + AdaLoRA调整
+                base_output = self.linear(x)
+                adalora_adjustment = self.adalora_B @ self.adalora_A @ x.t()
+                return base_output + adalora_adjustment.t()
+        
+        self.model = MockAdaLoRAModel()
         
         self.data = torch.randn(100, 10)
         self.targets = torch.randint(0, 2, (100,))
@@ -452,6 +662,180 @@ class TestAdaLoRATrainingStrategy:
         # 检查必需字段
         assert 'required' in schema
         assert 'base_model_path' in schema['required']
+    
+    def test_prepare_model_with_adalora_layers(self):
+        """测试准备有AdaLoRA层的模型"""
+        # 模型已经有AdaLoRA层，应该成功
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        
+        # 应该返回相同的模型实例
+        assert prepared_model is self.model
+        
+        # 检查基础参数是否被冻结
+        for name, param in self.model.named_parameters():
+            if not self.strategy._is_adalora_param(name):
+                assert not param.requires_grad, f"基础参数 {name} 应该被冻结"
+            else:
+                assert param.requires_grad, f"AdaLoRA参数 {name} 应该可训练"
+    
+    def test_prepare_model_without_adalora_layers(self):
+        """测试准备没有AdaLoRA层的模型"""
+        model_without_adalora = nn.Linear(10, 2)
+        
+        with pytest.raises(StrategyError, match="模型没有应用AdaLoRA层"):
+            self.strategy.prepare_model(model_without_adalora, self.config)
+    
+    def test_train_model_basic(self):
+        """测试基本AdaLoRA模型训练"""
+        # 准备模型
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, self.config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'adalora_params_count' in metrics
+        assert 'rank_distribution' in metrics
+        
+        # 检查指标值是否合理
+        assert metrics['epochs_completed'] == self.config['epochs']
+        assert metrics['num_samples'] == len(self.dataset)
+        assert 0.0 <= metrics['accuracy'] <= 1.0
+        assert metrics['loss'] >= 0.0
+        assert metrics['adalora_params_count'] > 0
+        assert isinstance(metrics['rank_distribution'], dict)
+    
+    def test_train_model_multiple_epochs(self):
+        """测试多轮AdaLoRA训练"""
+        config = self.config.copy()
+        config['epochs'] = 2
+        
+        prepared_model = self.strategy.prepare_model(self.model, config)
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, config)
+        
+        assert metrics['epochs_completed'] == 2
+        assert metrics['num_samples'] == len(self.dataset) * 2
+    
+    def test_train_model_empty_dataset(self):
+        """测试空数据集AdaLoRA训练"""
+        empty_dataset = TensorDataset(torch.randn(0, 10), torch.randint(0, 2, (0,)))
+        empty_loader = DataLoader(empty_dataset, batch_size=16)
+        
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        metrics = self.strategy.train_model(prepared_model, empty_loader, self.config)
+        
+        # 空数据集应该返回默认值
+        assert metrics['loss'] == 0.0
+        assert metrics['accuracy'] == 0.0
+        assert metrics['f1_score'] == 0.0
+        assert metrics['num_samples'] == 0
+    
+    def test_evaluate_model(self):
+        """测试AdaLoRA模型评估"""
+        prepared_model = self.strategy.prepare_model(self.model, self.config)
+        metrics = self.strategy.evaluate_model(prepared_model, self.train_loader, self.config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'adalora_params_count' in metrics
+        assert 'rank_distribution' in metrics
+        
+        # 检查指标值是否合理
+        assert metrics['num_samples'] == len(self.dataset)
+        assert 0.0 <= metrics['accuracy'] <= 1.0
+        assert metrics['loss'] >= 0.0
+        assert metrics['adalora_params_count'] > 0
+        assert isinstance(metrics['rank_distribution'], dict)
+    
+    def test_execute_with_context(self):
+        """测试使用上下文执行AdaLoRA策略"""
+        context = {
+            'model': self.model,
+            'train_loader': self.train_loader,
+            'config': self.config
+        }
+        
+        metrics = self.strategy.execute(context)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'adalora_params_count' in metrics
+        assert 'rank_distribution' in metrics
+    
+    def test_get_optimizer_adam(self):
+        """测试获取Adam优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'adam'
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.Adam)
+        assert optimizer.param_groups[0]['lr'] == config['lr']
+    
+    def test_get_optimizer_adamw(self):
+        """测试获取AdamW优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'adamw'
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.AdamW)
+    
+    def test_get_optimizer_sgd(self):
+        """测试获取SGD优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'sgd'
+        config['momentum'] = 0.9
+        
+        optimizer = self.strategy.get_optimizer(self.model, config)
+        
+        assert isinstance(optimizer, torch.optim.SGD)
+        assert optimizer.param_groups[0]['momentum'] == 0.9
+    
+    def test_get_optimizer_invalid(self):
+        """测试获取无效优化器"""
+        config = self.config.copy()
+        config['optimizer'] = 'invalid'
+        
+        with pytest.raises(StrategyError, match="不支持的优化器类型"):
+            self.strategy.get_optimizer(self.model, config)
+    
+    def test_get_optimizer_no_trainable_params(self):
+        """测试没有可训练参数时获取优化器"""
+        # 冻结所有参数
+        for param in self.model.parameters():
+            param.requires_grad = False
+        
+        with pytest.raises(StrategyError, match="没有可训练的参数"):
+            self.strategy.get_optimizer(self.model, self.config)
+    
+    def test_train_model_with_mixed_precision(self):
+        """测试AdaLoRA混合精度训练"""
+        config = self.config.copy()
+        config['use_amp'] = True  # 启用混合精度
+        
+        prepared_model = self.strategy.prepare_model(self.model, config)
+        metrics = self.strategy.train_model(prepared_model, self.train_loader, config)
+        
+        # 检查返回的指标
+        assert 'loss' in metrics
+        assert 'accuracy' in metrics
+        assert 'f1_score' in metrics
+        assert 'num_samples' in metrics
+        assert 'epochs_completed' in metrics
+        assert 'adalora_params_count' in metrics
+        assert 'rank_distribution' in metrics
 
 
 class TestTrainingStrategyIntegration:

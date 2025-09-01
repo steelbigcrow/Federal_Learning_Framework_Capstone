@@ -4,17 +4,18 @@
 
 import unittest
 from unittest.mock import Mock, MagicMock
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import torch
 
 from src.core.interfaces.strategy import (
     StrategyInterface,
     AggregationStrategyInterface,
+    TrainingStrategyInterface,
+    DataPartitionStrategyInterface,
     ClientSelectionStrategyInterface,
-    DataPartitioningStrategyInterface,
-    ModelUpdateStrategyInterface,
-    PrivacyStrategyInterface,
-    CommunicationStrategyInterface,
+    OptimizationStrategyInterface,
+    EvaluationStrategyInterface,
+    StrategyRegistry,
     strategy_register
 )
 from src.core.exceptions import StrategyError, ComponentCreationError
@@ -23,8 +24,8 @@ from src.core.exceptions import StrategyError, ComponentCreationError
 class ConcreteAggregationStrategy(AggregationStrategyInterface):
     """用于测试的具体聚合策略实现"""
     
-    def aggregate(self, client_models: List[Dict[str, torch.Tensor]], 
-                 client_weights: List[float], metadata: Dict[str, Any] = None) -> Dict[str, torch.Tensor]:
+    def aggregate_models(self, client_models: List[Dict[str, torch.Tensor]], 
+                         client_weights: List[float], global_model: Optional[Dict[str, torch.Tensor]] = None) -> Dict[str, torch.Tensor]:
         """简单平均聚合"""
         if not client_models:
             raise StrategyError("No models to aggregate")
@@ -34,10 +35,32 @@ class ConcreteAggregationStrategy(AggregationStrategyInterface):
             aggregated[key] = torch.mean(torch.stack([model[key] for model in client_models]), dim=0)
         return aggregated
         
-    def compute_weights(self, client_info: List[Dict[str, Any]], 
-                       round_info: Dict[str, Any] = None) -> List[float]:
+    def compute_weights(self, client_metrics: List[Dict[str, Any]]) -> List[float]:
         """计算客户端权重"""
-        return [1.0] * len(client_info)  # 均等权重
+        return [1.0] * len(client_metrics)  # 均等权重
+        
+    def execute(self, context: Dict[str, Any], **kwargs) -> Any:
+        """执行策略"""
+        return self.aggregate_models(
+            context.get('client_models', []),
+            context.get('client_weights', []),
+            context.get('global_model')
+        )
+    
+    def get_name(self) -> str:
+        return "concrete_aggregation"
+    
+    def get_description(self) -> str:
+        return "Concrete aggregation strategy for testing"
+    
+    def validate_context(self, context: Dict[str, Any]) -> None:
+        required_keys = ['client_models', 'client_weights']
+        for key in required_keys:
+            if key not in context:
+                raise StrategyError(f"Missing required key: {key}")
+    
+    def get_required_metrics(self) -> List[str]:
+        return ["num_samples"]
 
 
 class ConcreteClientSelectionStrategy(ClientSelectionStrategyInterface):
@@ -47,21 +70,41 @@ class ConcreteClientSelectionStrategy(ClientSelectionStrategyInterface):
         self.selection_rate = selection_rate
         
     def select_clients(self, available_clients: List[Any], 
-                      round_info: Dict[str, Any] = None) -> List[Any]:
+                       round_number: int,
+                       config: Dict[str, Any]) -> List[Any]:
         """选择前一半客户端"""
         num_select = max(1, int(len(available_clients) * self.selection_rate))
         return available_clients[:num_select]
         
-    def get_selection_criteria(self) -> Dict[str, Any]:
-        """获取选择标准"""
-        return {'selection_rate': self.selection_rate, 'strategy': 'first_n'}
+    def execute(self, context: Dict[str, Any], **kwargs) -> Any:
+        """执行策略"""
+        return self.select_clients(
+            context.get('available_clients', []),
+            context.get('round_number', 0),
+            context.get('config', {})
+        )
+    
+    def get_name(self) -> str:
+        return "concrete_client_selection"
+    
+    def get_description(self) -> str:
+        return "Concrete client selection strategy for testing"
+    
+    def validate_context(self, context: Dict[str, Any]) -> None:
+        required_keys = ['available_clients']
+        for key in required_keys:
+            if key not in context:
+                raise StrategyError(f"Missing required key: {key}")
+    
+    def get_selection_ratio(self) -> float:
+        return self.selection_rate
 
 
-class ConcreteDataPartitioningStrategy(DataPartitioningStrategyInterface):
+class ConcreteDataPartitioningStrategy(DataPartitionStrategyInterface):
     """用于测试的具体数据分区策略实现"""
     
     def partition_data(self, dataset: Any, num_clients: int, 
-                      partition_config: Dict[str, Any] = None) -> List[Any]:
+                       config: Dict[str, Any]) -> List[Any]:
         """简单数据分区"""
         if num_clients <= 0:
             raise StrategyError("Number of clients must be positive")
@@ -72,37 +115,38 @@ class ConcreteDataPartitioningStrategy(DataPartitioningStrategyInterface):
             partitions.append(f"partition_{i}")
         return partitions
         
-    def get_partition_info(self, partitions: List[Any]) -> Dict[str, Any]:
+    def get_partition_info(self) -> Dict[str, Any]:
         """获取分区信息"""
         return {
-            'num_partitions': len(partitions),
             'partition_type': 'simulated',
-            'balance': 'equal'
+            'strategy': 'uniform'
         }
-
-
-class ConcreteModelUpdateStrategy(ModelUpdateStrategyInterface):
-    """用于测试的具体模型更新策略实现"""
     
-    def compute_update(self, old_model: Dict[str, torch.Tensor], 
-                      new_model: Dict[str, torch.Tensor], 
-                      config: Dict[str, Any] = None) -> Dict[str, torch.Tensor]:
-        """计算模型更新"""
-        update = {}
-        for key in old_model.keys():
-            update[key] = new_model[key] - old_model[key]
-        return update
-        
-    def apply_update(self, model: Dict[str, torch.Tensor], 
-                    update: Dict[str, torch.Tensor], 
-                    config: Dict[str, Any] = None) -> Dict[str, torch.Tensor]:
-        """应用模型更新"""
-        updated_model = {}
-        learning_rate = config.get('learning_rate', 1.0) if config else 1.0
-        
-        for key in model.keys():
-            updated_model[key] = model[key] + learning_rate * update[key]
-        return updated_model
+    def execute(self, context: Dict[str, Any], **kwargs) -> Any:
+        """执行策略"""
+        return self.partition_data(
+            context.get('dataset'),
+            context.get('num_clients', 1),
+            context.get('config', {})
+        )
+    
+    def get_name(self) -> str:
+        return "concrete_data_partitioning"
+    
+    def get_description(self) -> str:
+        return "Concrete data partitioning strategy for testing"
+    
+    def validate_context(self, context: Dict[str, Any]) -> None:
+        required_keys = ['dataset', 'num_clients']
+        for key in required_keys:
+            if key not in context:
+                raise StrategyError(f"Missing required key: {key}")
+    
+    def is_iid(self) -> bool:
+        return True
+
+
+# Removed: ConcreteModelUpdateStrategy - interface not implemented in current strategy system
 
 
 class TestStrategyInterface(unittest.TestCase):
@@ -216,7 +260,7 @@ class TestClientSelectionStrategyInterface(unittest.TestCase):
             ClientSelectionStrategyInterface()
 
 
-class TestDataPartitioningStrategyInterface(unittest.TestCase):
+class TestDataPartitionStrategyInterface(unittest.TestCase):
     
     def setUp(self):
         """测试前设置"""
@@ -255,7 +299,7 @@ class TestDataPartitioningStrategyInterface(unittest.TestCase):
     def test_abstract_methods_enforcement(self):
         """测试抽象方法强制实现"""
         with self.assertRaises(TypeError):
-            DataPartitioningStrategyInterface()
+            DataPartitionStrategyInterface()
 
 
 class TestModelUpdateStrategyInterface(unittest.TestCase):

@@ -15,7 +15,6 @@ from torch.optim import Adam, AdamW
 from ...core.base.client import AbstractClient
 from ...core.exceptions.exceptions import ClientConfigurationError, ClientTrainingError
 from ...core.interfaces.strategy import TrainingStrategyInterface
-from ...factories.model_factory import ModelFactory
 
 
 class FederatedClient(AbstractClient):
@@ -160,7 +159,14 @@ class FederatedClient(AbstractClient):
             
             # 验证模型设备
             model_device = next(self._current_model.parameters()).device
-            if str(model_device) != self._device:
+            # 处理设备字符串格式差异（例如 "cuda:0" vs "cuda"）
+            if self._device == 'cuda' and str(model_device).startswith('cuda:'):
+                # CUDA设备匹配
+                pass
+            elif self._device == 'cpu' and str(model_device) == 'cpu':
+                # CPU设备匹配
+                pass
+            elif str(model_device) != self._device:
                 raise ClientConfigurationError(f"Model device {model_device} doesn't match configured device {self._device}")
                 
             self._logger.info(f"Client {self._client_id} received global model successfully")

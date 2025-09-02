@@ -2,25 +2,27 @@
 Core federated learning components.
 
 This module provides the main classes and aggregation functions for federated learning,
-including Server, Client implementations, and aggregation algorithms.
-
-The module now includes both the original implementations and new OOP implementations
-for backward compatibility during the refactoring process.
+now fully implemented using the new OOP architecture.
 """
 
-# Original implementations (for backward compatibility)
-from .server import Server
-from .client import Client
-from .aggregator import fedavg, lora_fedavg, adalora_fedavg, get_trainable_keys
-
-# New OOP implementations
-from ..implementations.clients import FederatedClient
-from ..implementations.servers import FederatedServer
+# Direct imports from OOP implementations
+from ..implementations.clients.federated_client import FederatedClient
+from ..implementations.servers.federated_server import FederatedServer
 from ..implementations.aggregators import FederatedAggregator
+from ..implementations.aggregators.federated_aggregator import FederatedAggregator
+# 提取聚合函数作为模块级别的函数
+fedavg = FederatedAggregator.fedavg
+lora_fedavg = FederatedAggregator.lora_fedavg
+adalora_fedavg = FederatedAggregator.adalora_fedavg
+get_trainable_keys = FederatedAggregator.get_trainable_keys
+
+# Aliases for backward compatibility
+Client = FederatedClient
+Server = FederatedServer
 
 __all__ = [
-    # Original implementations
-    'Server', 'Client', 'fedavg', 'lora_fedavg', 'adalora_fedavg', 'get_trainable_keys',
-    # New OOP implementations
-    'FederatedClient', 'FederatedServer', 'FederatedAggregator'
+    # Main classes
+    'Client', 'Server', 'FederatedClient', 'FederatedServer', 'FederatedAggregator',
+    # Aggregation functions
+    'fedavg', 'lora_fedavg', 'adalora_fedavg', 'get_trainable_keys'
 ]

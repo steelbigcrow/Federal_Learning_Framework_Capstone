@@ -307,9 +307,10 @@ class FederatedAggregator(AbstractAggregator):
         total = float(sum(client_weights))
         new_state: Dict[str, torch.Tensor] = {}
         
-        # 只聚合可训练的权重
-        for key in trainable_keys:
-            if key in client_models[0]:
+        # 聚合所有权重，但只对可训练的权重进行加权平均
+        for key in client_models[0].keys():
+            if key in trainable_keys:
+                # 对可训练权重进行加权平均
                 acc = None
                 for model_state, weight in zip(client_models, client_weights):
                     w = weight / total
@@ -318,6 +319,9 @@ class FederatedAggregator(AbstractAggregator):
                     else:
                         acc += model_state[key].detach() * w
                 new_state[key] = acc
+            else:
+                # 对于非可训练权重，直接使用第一个客户端的权重
+                new_state[key] = client_models[0][key].detach().clone()
                 
         return new_state
         

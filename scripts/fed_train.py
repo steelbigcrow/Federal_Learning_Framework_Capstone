@@ -20,7 +20,8 @@ from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_la
 from src.models import create_model
 from src.training import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
 from src.training.adalora_utils import inject_adalora_modules, mark_only_adalora_as_trainable, create_rank_allocator, get_adalora_parameter_stats
-from src.federated import Client, Server
+from src.implementations.clients.federated_client import FederatedClient
+from src.implementations.servers.federated_server import FederatedServer
 
 
 def main():
@@ -253,12 +254,25 @@ def main():
 
 	# 创建联邦学习客户端
 	clients = []
+	# 准备客户端配置
+	client_config = {
+		'optimizer': cfg['optimizer'],
+		'use_amp': cfg.get('use_amp', False),
+		'test_ratio': cfg.get('test_ratio', 0.3)
+	}
+	
 	if ds_name == 'mnist':
 		# 为MNIST数据集创建客户端
 		for cid in range(num_clients):
 			train_subset = parts[cid]  # 每个客户端的训练数据子集
 			train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
-			clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer']))
+			clients.append(FederatedClient(
+				client_id=cid,
+				model_ctor=model_ctor,
+				train_data_loader=train_loader,
+				config=client_config,
+				device=str(device)
+			))
 
 	elif ds_name == 'imdb':
 		# 为IMDB数据集创建客户端
@@ -267,7 +281,13 @@ def main():
 			train_list = parts[cid]  # 每个客户端的训练数据列表
 			collate = CollateText(text_to_ids, pad_idx, cfg.get('max_seq_len', 256))
 			train_loader = DataLoader(train_list, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate)
-			clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer']))
+			clients.append(FederatedClient(
+				client_id=cid,
+				model_ctor=model_ctor,
+				train_data_loader=train_loader,
+				config=client_config,
+				device=str(device)
+			))
 
 	# 构建模型信息字典
 	model_info = {
@@ -277,10 +297,26 @@ def main():
 		'device': str(device)
 	}
 
+	# 准备服务器配置
+	server_config = {
+		'federated': {
+			'num_rounds': num_rounds,
+			'local_epochs': local_epochs
+		},
+		'lora_cfg': lora_cfg_effective,
+		'adalora_cfg': adalora_cfg_effective,
+		'save_client_each_round': save_client_each_round,
+		'model_info': model_info
+	}
+	
 	# 创建联邦学习服务器并开始训练
-	server = Server(lambda: deepcopy(global_model), clients, pm, device=str(device), 
-				   lora_cfg=lora_cfg_effective, adalora_cfg=adalora_cfg_effective, 
-				   save_client_each_round=save_client_each_round, model_info=model_info)
+	server = FederatedServer(
+		model_constructor=lambda: deepcopy(global_model),
+		clients=clients,
+		path_manager=pm,
+		config=server_config,
+		device=str(device)
+	)
 	
 	# 记录训练开始时间（用于自动评估）
 	import time

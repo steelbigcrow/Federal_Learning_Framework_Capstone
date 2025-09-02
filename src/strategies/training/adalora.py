@@ -4,7 +4,7 @@ AdaLoRA训练策略
 实现联邦学习中的AdaLoRA微调训练策略。
 """
 
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Tuple
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -31,6 +31,34 @@ class AdaLoRATrainingStrategy(TrainingStrategyInterface):
     
     def get_description(self) -> str:
         return self.description
+    
+    def train(self, model: torch.nn.Module, train_loader: DataLoader, 
+             optimizer: torch.optim.Optimizer, num_epochs: int, 
+             device: str, scaler: Optional[torch.cuda.amp.GradScaler] = None,
+             **kwargs) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
+        """
+        训练接口，匹配客户端的调用格式
+        
+        Args:
+            model: 要训练的模型
+            train_loader: 训练数据加载器
+            optimizer: 优化器
+            num_epochs: 训练轮数
+            device: 设备
+            scaler: 梯度缩放器
+            
+        Returns:
+            Tuple[模型状态字典, 训练指标]
+        """
+        config = {
+            'optimizer': optimizer,
+            'epochs': num_epochs,
+            'device': device,
+            'use_amp': scaler is not None,
+            **kwargs
+        }
+        
+        return self.train_model(model, train_loader, config)
     
     def validate_context(self, context: Dict[str, Any]) -> None:
         """验证策略执行上下文"""
@@ -133,7 +161,9 @@ class AdaLoRATrainingStrategy(TrainingStrategyInterface):
             metrics['accuracy'] /= metrics['epochs_completed']
             metrics['f1_score'] /= metrics['epochs_completed']
         
-        return metrics
+        # 返回模型状态字典和指标
+        from copy import deepcopy
+        return deepcopy(model.state_dict()), metrics
     
     def _train_one_epoch(self, 
                         model: torch.nn.Module,

@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from ..core.interfaces.factory import ClientFactoryInterface, ComponentType
 from ..core.base.client import AbstractClient
 from ..core.exceptions import FactoryError
-from ..federated.client import Client as LegacyClient
+from ..implementations.clients.federated_client import FederatedClient as LegacyClient
 from .factory_registry import register_factory, get_factory_registry
 
 
@@ -227,15 +227,20 @@ class ClientFactory(ClientFactoryInterface):
         use_amp = config.get('use_amp', False)
         test_ratio = config.get('test_ratio', 0.3)
         
+        # 创建客户端配置
+        client_config = {
+            'optimizer': optimizer_cfg,
+            'use_amp': use_amp,
+            'test_ratio': test_ratio
+        }
+        
         # 创建客户端
         client = LegacyClient(
             client_id=client_id,
             model_ctor=model_ctor,
-            train_loader=train_dataloader,
-            device=device,
-            optimizer_cfg=optimizer_cfg,
-            use_amp=use_amp,
-            test_ratio=test_ratio
+            train_data_loader=train_dataloader,
+            config=client_config,
+            device=device
         )
         
         return client

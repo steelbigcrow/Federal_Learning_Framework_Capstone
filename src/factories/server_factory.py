@@ -14,7 +14,7 @@ import logging
 from ..core.interfaces.factory import ServerFactoryInterface, ComponentType
 from ..core.base.server import AbstractServer
 from ..core.exceptions import FactoryError
-from ..federated.server import Server as LegacyServer
+from ..implementations.servers.federated_server import FederatedServer as LegacyServer
 from ..utils.paths import PathManager
 from .factory_registry import register_factory, get_factory_registry
 
@@ -189,16 +189,25 @@ class ServerFactory(ServerFactoryInterface):
         save_client_each_round = config.get('save_client_each_round', True)
         model_info = config.get('model_info', {})
         
+        # 创建服务器配置
+        server_config = {
+            'federated': {
+                'num_rounds': 10,  # 默认值
+                'local_epochs': 5  # 默认值
+            },
+            'lora_cfg': lora_cfg,
+            'adalora_cfg': adalora_cfg,
+            'save_client_each_round': save_client_each_round,
+            'model_info': model_info
+        }
+        
         # 创建服务器
         server = LegacyServer(
-            model_ctor=model_constructor,
+            model_constructor=model_constructor,
             clients=clients,
             path_manager=path_manager,
-            device=device,
-            lora_cfg=lora_cfg,
-            adalora_cfg=adalora_cfg,
-            save_client_each_round=save_client_each_round,
-            model_info=model_info
+            config=server_config,
+            device=device
         )
         
         return server

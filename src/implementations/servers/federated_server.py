@@ -103,7 +103,14 @@ class FederatedServer(AbstractServer):
             
             # 验证模型设备
             model_device = next(self._global_model.parameters()).device
-            if str(model_device) != self._device:
+            # 处理设备字符串格式差异（例如 "cuda:0" vs "cuda"）
+            if self._device == 'cuda' and str(model_device).startswith('cuda:'):
+                # CUDA设备匹配
+                pass
+            elif self._device == 'cpu' and str(model_device) == 'cpu':
+                # CPU设备匹配
+                pass
+            elif str(model_device) != self._device:
                 raise ServerConfigurationError(f"Model device {model_device} doesn't match configured device {self._device}")
                 
             self._logger.info("Global model initialized successfully")
@@ -143,11 +150,10 @@ class FederatedServer(AbstractServer):
         try:
             if self._aggregation_strategy:
                 # 使用策略模式进行聚合
-                aggregated_state = self._aggregation_strategy.aggregate(
+                aggregated_state = self._aggregation_strategy.aggregate_models(
                     client_models=client_models,
                     client_weights=client_weights,
-                    global_model=self._global_model,
-                    config=self._config
+                    global_model=self._global_model.state_dict() if self._global_model else None
                 )
             else:
                 # 使用默认聚合逻辑
@@ -198,7 +204,11 @@ class FederatedServer(AbstractServer):
         Returns:
             聚合后的全局模型状态字典
         """
-        from ...federated.aggregator import fedavg, lora_fedavg, adalora_fedavg, get_trainable_keys
+        from ..aggregators.federated_aggregator import FederatedAggregator
+        fedavg = FederatedAggregator.fedavg
+        lora_fedavg = FederatedAggregator.lora_fedavg
+        adalora_fedavg = FederatedAggregator.adalora_fedavg
+        get_trainable_keys = FederatedAggregator.get_trainable_keys
         
         # 根据训练模式选择聚合策略
         if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
@@ -230,6 +240,7 @@ class FederatedServer(AbstractServer):
         """
         from ..training.checkpoints import save_client_round
         from ..training.lora_utils import save_lora_checkpoint
+        from ..training.adalora_utils import save_adalora_checkpoint
         from ..training.logging_utils import write_text_log
         
         for client in self._clients:
@@ -244,7 +255,14 @@ class FederatedServer(AbstractServer):
                 ckpt_path = self._path_manager.client_round_ckpt(client.client_id, round_number)
                 
                 # 根据模式选择保存方式
-                if self._lora_cfg and self._lora_cfg.get('replaced_modules'):
+                if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
+                    # AdaLoRA模式：保存AdaLoRA权重
+                    success = self._safe_save_checkpoint(
+                        save_adalora_checkpoint, log_file, ckpt_path,
+                        client.global_model if hasattr(client, 'global_model') else None,
+                        ckpt_path, meta
+                    )
+                elif self._lora_cfg and self._lora_cfg.get('replaced_modules'):
                     # LoRA模式：保存LoRA权重
                     success = self._safe_save_checkpoint(
                         save_lora_checkpoint, log_file, ckpt_path,
@@ -275,6 +293,7 @@ class FederatedServer(AbstractServer):
         """
         from ..training.checkpoints import save_global_round
         from ..training.lora_utils import save_lora_checkpoint
+        from ..training.adalora_utils import save_adalora_checkpoint
         from ..training.logging_utils import write_text_log
         
         try:
@@ -285,7 +304,13 @@ class FederatedServer(AbstractServer):
             g_meta = self._build_server_meta(round_number)
             
             # 根据模式选择保存方式
-            if self._lora_cfg and self._lora_cfg.get('replaced_modules'):
+            if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
+                # AdaLoRA模式：保存AdaLoRA权重
+                success = self._safe_save_checkpoint(
+                    save_adalora_checkpoint, server_log, g_path,
+                    self._global_model, g_path, g_meta
+                )
+            elif self._lora_cfg and self._lora_cfg.get('replaced_modules'):
                 # LoRA模式：保存LoRA权重
                 success = self._safe_save_checkpoint(
                     save_lora_checkpoint, server_log, g_path,
@@ -378,11 +403,23 @@ class FederatedServer(AbstractServer):
             "num_samples": num_samples,
             "metrics": metrics,
             "lora": self._lora_cfg,
+            "adalora": self._adalora_cfg,
         }
         
     def _build_server_meta(self, round_num: int, is_lora: bool = False) -> Dict:
         """构建服务器元数据"""
-        if is_lora:
+        # Check if AdaLoRA mode
+        if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
+            return {
+                "round": round_num,
+                "dataset": self._model_info.get('dataset', 'unknown'),
+                "model_type": self._model_info.get('model_type', 'unknown'),
+                "base_model_path": self._adalora_cfg.get('base_model_path', ''),
+                "adalora_config": self._adalora_cfg,
+                "is_global": True
+            }
+        # Check if LoRA mode
+        elif is_lora or (self._lora_cfg and self._lora_cfg.get('replaced_modules')):
             return {
                 "round": round_num,
                 "dataset": self._model_info.get('dataset', 'unknown'),
@@ -392,7 +429,11 @@ class FederatedServer(AbstractServer):
                 "is_global": True
             }
         else:
-            return {"round": round_num, "lora": self._lora_cfg}
+            return {
+                "round": round_num, 
+                "lora": self._lora_cfg,
+                "adalora": self._adalora_cfg
+            }
             
     def _compute_round_metrics(self, round_number: int, clients: List, client_weights: List[float]) -> Dict[str, Any]:
         """计算轮次指标"""

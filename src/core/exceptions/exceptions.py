@@ -195,11 +195,8 @@ class ServerError(FederatedLearningException):
     """服务器相关错误基类"""
     
     def __init__(self, message: str, **kwargs):
-        super().__init__(
-            message,
-            category=ErrorCategory.SYSTEM,
-            **kwargs
-        )
+        # Don't set category here to allow subclasses to override it
+        super().__init__(message, **kwargs)
 
 
 class ServerConfigurationError(ServerError):

@@ -198,10 +198,15 @@ class FederatedServer(AbstractServer):
         Returns:
             聚合后的全局模型状态字典
         """
-        from ...federated.aggregator import fedavg, lora_fedavg, get_trainable_keys
+        from ...federated.aggregator import fedavg, lora_fedavg, adalora_fedavg, get_trainable_keys
         
-        # 根据是否使用LoRA选择聚合策略
-        if self._lora_cfg and self._lora_cfg.get('replaced_modules'):
+        # 根据训练模式选择聚合策略
+        if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
+            # AdaLoRA模式：使用AdaLoRA聚合
+            print(f"[AdaLoRA Aggregation] Using AdaLoRA aggregation strategy")
+            aggregated_state = adalora_fedavg(client_models, client_weights)
+            print(f"[AdaLoRA Aggregation] AdaLoRA aggregation completed")
+        elif self._lora_cfg and self._lora_cfg.get('replaced_modules'):
             # LoRA模式：只聚合可训练的权重
             trainable_keys = get_trainable_keys(self._global_model)
             print(f"[LoRA Aggregation] Trainable parameters count: {len(trainable_keys)}")

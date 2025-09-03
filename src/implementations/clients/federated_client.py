@@ -296,13 +296,11 @@ class FederatedClient(AbstractClient):
         Returns:
             Tuple[模型状态字典, 训练指标字典]
         """
-        from ...training.train import train_one_epoch
-        
         train_metrics_history = []
         
         for epoch in range(1, num_epochs + 1):
             # 执行一个epoch的训练
-            epoch_metrics = train_one_epoch(model, train_loader, optimizer, self._device, scaler)
+            epoch_metrics = self._train_one_epoch(model, train_loader, optimizer, scaler)
             train_metrics_history.append({
                 'epoch': epoch,
                 **epoch_metrics
@@ -334,9 +332,162 @@ class FederatedClient(AbstractClient):
         Returns:
             评估指标字典
         """
-        from ...training.evaluate import evaluate
+        eval_results = self._evaluate_model(model, test_loader)
         
-        return evaluate(model, test_loader, device)
+        # 添加test_前缀以确保与plotting系统兼容
+        return {
+            'test_acc': eval_results.get('acc', 0),
+            'test_f1': eval_results.get('f1', 0), 
+            'test_loss': eval_results.get('loss', 0)
+        }
+
+    def _train_one_epoch(self, model, data_loader, optimizer, scaler=None) -> Dict[str, float]:
+        """
+        训练一个epoch的函数
+        
+        Args:
+            model: 要训练的模型
+            data_loader: 训练数据加载器
+            optimizer: 优化器
+            scaler: 梯度缩放器（用于混合精度训练）
+            
+        Returns:
+            包含损失、准确率和F1分数的字典
+        """
+        import torch.nn.functional as F
+        from sklearn.metrics import f1_score
+        
+        # 处理空数据集情况
+        if len(data_loader.dataset) == 0:
+            return {"loss": 0.0, "acc": 0.0, "f1": 0.0}
+
+        model.train()
+        total_loss = 0.0
+        total_correct = 0
+        total = 0
+        all_predictions = []
+        all_labels = []
+
+        # 在第一个批次时显示设备信息
+        first_batch = True
+
+        for step, batch in enumerate(data_loader, start=1):
+            if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                x, y = batch
+            else:
+                raise ValueError("Batch format must be (x, y)")
+            x = x.to(self._device)
+            y = y.to(self._device)
+
+            # 第一个批次时打印设备验证信息
+            if first_batch:
+                first_batch = False
+
+            # 清空梯度
+            optimizer.zero_grad(set_to_none=True)
+
+            # 混合精度训练
+            if scaler is not None:
+                with torch.cuda.amp.autocast():
+                    logits = model(x)
+                    loss = F.cross_entropy(logits, y)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                # 标准训练
+                logits = model(x)
+                loss = F.cross_entropy(logits, y)
+                loss.backward()
+                optimizer.step()
+
+            # 计算准确率并收集预测结果用于F1计算
+            pred = logits.argmax(dim=1)
+            total_correct += (pred == y).sum().item()
+            total_loss += loss.item() * y.size(0)
+            total += y.size(0)
+
+            # 收集预测结果和标签用于F1计算
+            all_predictions.extend(pred.cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
+
+        # 计算F1分数
+        f1 = f1_score(all_labels, all_predictions, average='weighted')
+
+        return {
+            "loss": total_loss / max(1, total),
+            "acc": total_correct / max(1, total),
+            "f1": f1
+        }
+
+    def _evaluate_model(self, model, data_loader) -> Dict[str, float]:
+        """
+        模型评估函数
+        
+        Args:
+            model: 要评估的模型
+            data_loader: 测试数据加载器
+            
+        Returns:
+            包含损失、准确率和F1分数的字典
+        """
+        import torch.nn.functional as F
+        from sklearn.metrics import f1_score
+        
+        # 处理空数据集情况
+        if len(data_loader.dataset) == 0:
+            return {"loss": 0.0, "acc": 0.0, "f1": 0.0}
+
+        # 保存原始训练状态
+        original_training = model.training
+        model.eval()
+
+        total_loss = 0.0
+        total_correct = 0
+        total = 0
+        all_predictions = []
+        all_labels = []
+
+        # 验证模型在正确设备上（仅第一个批次）
+        first_batch = True
+
+        try:
+            with torch.no_grad():
+                for batch in data_loader:
+                    if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                        x, y = batch
+                    else:
+                        raise ValueError("Batch format must be (x, y)")
+                    x = x.to(self._device)
+                    y = y.to(self._device)
+
+                    # 第一个批次时验证设备
+                    if first_batch:
+                        model_device = next(model.parameters()).device
+                        first_batch = False
+                    logits = model(x)
+                    loss = F.cross_entropy(logits, y)
+                    pred = logits.argmax(dim=1)
+                    total_correct += (pred == y).sum().item()
+                    total += y.size(0)
+                    total_loss += loss.item() * y.size(0)
+
+                    # 收集预测结果和标签用于F1计算
+                    all_predictions.extend(pred.cpu().numpy())
+                    all_labels.extend(y.cpu().numpy())
+
+            # 计算F1分数
+            f1 = f1_score(all_labels, all_predictions, average='weighted')
+
+            return {
+                "loss": total_loss / max(1, total),
+                "acc": total_correct / max(1, total),
+                "f1": f1
+            }
+        finally:
+            # 恢复原始训练状态
+            if original_training:
+                model.train()
         
     # 向后兼容的属性和方法
     @property

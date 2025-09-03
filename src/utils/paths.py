@@ -78,6 +78,16 @@ class PathManager:
 		return os.path.join(self.root, self.model_type, self.run_name)
 
 	@property
+	def output_dir(self) -> str:
+		"""
+		输出目录（与run_root相同，用于保持与旧接口的兼容性）
+
+		Returns:
+			输出目录路径
+		"""
+		return self.run_root
+
+	@property
 	def weights_root(self) -> str:
 		"""
 		权重文件根目录
@@ -188,6 +198,32 @@ class PathManager:
 		client_dir = os.path.join(self.metrics_clients_dir, f"client_{client_id}")
 		os.makedirs(client_dir, exist_ok=True)
 		return os.path.join(client_dir, f"round_{round_id}.json")
+
+	def server_round_metrics(self, round_id: int) -> str:
+		"""
+		获取服务器轮次指标文件路径
+
+		Args:
+			round_id: 轮次ID
+
+		Returns:
+			服务器指标文件路径
+		"""
+		os.makedirs(self.metrics_server_dir, exist_ok=True)
+		return os.path.join(self.metrics_server_dir, f"round_{round_id}.json")
+	
+	def server_round_log(self, round_id: int) -> str:
+		"""
+		获取服务器轮次日志文件路径
+
+		Args:
+			round_id: 轮次ID
+
+		Returns:
+			服务器日志文件路径
+		"""
+		os.makedirs(self.logs_server_dir, exist_ok=True)
+		return os.path.join(self.logs_server_dir, f"round_{round_id}.log")
 
 	def round_metrics(self, round_id: int) -> str:
 		"""

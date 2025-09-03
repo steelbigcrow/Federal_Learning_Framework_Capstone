@@ -15,6 +15,11 @@ from ...core.base.server import AbstractServer
 from ...core.exceptions.exceptions import ServerConfigurationError, ServerOperationError
 from ...core.interfaces.strategy import AggregationStrategyInterface
 from ...utils.paths import PathManager
+from ...core.managers.checkpoint_manager import CheckpointManager
+from ...core.managers.log_manager import LogManager
+from ...core.managers.metrics_visualizer import MetricsVisualizer
+from ...strategies.training.lora_manager import LoRAManager
+from ...strategies.training.adalora_manager import AdaLoRAManager
 
 
 class FederatedServer(AbstractServer):
@@ -70,6 +75,37 @@ class FederatedServer(AbstractServer):
         self._save_client_each_round = bool(save_client_each_round)
         self._model_info = model_info
         self._aggregation_strategy = aggregation_strategy
+        self._client_model_states = {}  # Store client model states for checkpoint saving
+        
+        # 初始化管理器
+        self.checkpoint_manager = CheckpointManager(output_dir=path_manager.output_dir)
+        self.log_manager = LogManager(output_dir=path_manager.output_dir)
+        self.metrics_visualizer = MetricsVisualizer(output_dir=path_manager.output_dir)
+        
+        # 初始化训练模式管理器（如果需要）
+        if lora_cfg:
+            self.lora_manager = LoRAManager(
+                r=lora_cfg.get('r', 8),
+                alpha=lora_cfg.get('alpha', 16),
+                dropout=lora_cfg.get('dropout', 0.0),
+                target_modules=lora_cfg.get('target_modules', ['Linear', 'Embedding'])
+            )
+        else:
+            self.lora_manager = None
+            
+        if adalora_cfg:
+            self.adalora_manager = AdaLoRAManager(
+                r=adalora_cfg.get('r', 8),
+                alpha=adalora_cfg.get('alpha', 16),
+                dropout=adalora_cfg.get('dropout', 0.0),
+                target_modules=adalora_cfg.get('target_modules', ['Linear', 'Embedding']),
+                budget=adalora_cfg.get('budget', 100),
+                beta1=adalora_cfg.get('beta1', 0.85),
+                beta2=adalora_cfg.get('beta2', 0.85),
+                orth_reg_weight=adalora_cfg.get('orth_reg_weight', 0.1)
+            )
+        else:
+            self.adalora_manager = None
         
         # 构建完整配置
         full_config = {
@@ -148,6 +184,11 @@ class FederatedServer(AbstractServer):
             ServerOperationError: 当聚合过程失败时
         """
         try:
+            # Store client model states for checkpoint saving
+            for i, client in enumerate(self._clients):
+                if i < len(client_models):
+                    self._client_model_states[client.client_id] = client_models[i]
+            
             if self._aggregation_strategy:
                 # 使用策略模式进行聚合
                 aggregated_state = self._aggregation_strategy.aggregate_models(
@@ -164,6 +205,116 @@ class FederatedServer(AbstractServer):
         except Exception as e:
             raise ServerOperationError(f"Model aggregation failed: {e}") from e
             
+    def _execute_round(self, round_number: int, local_epochs: int) -> Dict[str, Any]:
+        """
+        执行单轮联邦学习
+        
+        重写基类方法以正确保存客户端指标和日志
+        
+        Args:
+            round_number: 轮次号
+            local_epochs: 本地训练轮数
+            
+        Returns:
+            轮次结果字典
+        """
+        from datetime import datetime
+        # Using log_manager instead of direct import
+        from src.core.exceptions import ServerOperationError
+        
+        self._logger.info(f"Starting round {round_number}")
+        
+        # 1. 选择客户端
+        selected_clients = self.select_clients(round_number)
+        self._logger.info(f"Selected {len(selected_clients)} clients for round {round_number}")
+        
+        # 2. 分发全局模型给客户端并训练
+        global_state = self._global_model.state_dict()
+        client_results = []
+        client_weights = []
+        client_metrics_list = []  # 收集客户端指标
+        
+        for client in selected_clients:
+            try:
+                # 客户端训练
+                model_state, metrics, num_samples = client.local_train_and_evaluate(
+                    global_state, local_epochs
+                )
+                
+                client_results.append(model_state)
+                client_weights.append(float(num_samples))
+                client_metrics_list.append(metrics)  # 保存客户端指标
+                
+                # 保存客户端指标到文件
+                client_metrics_path = self._path_manager.client_round_metrics(client.client_id, round_number)
+                self.log_manager.write_metrics_json(client_metrics_path, metrics)
+                
+                # 保存客户端日志
+                client_log_path = self._path_manager.client_round_log(client.client_id, round_number)
+                log_content = {
+                    "round": round_number,
+                    "client_id": client.client_id,
+                    "num_samples": num_samples,
+                    "local_epochs": local_epochs,
+                    "metrics": metrics,
+                    "timestamp": datetime.now().isoformat()
+                }
+                self.log_manager.write_metrics_json(client_log_path, log_content)
+                
+                self._logger.info(f"Client {client.client_id} completed training: {num_samples} samples")
+                
+            except Exception as e:
+                self._logger.error(f"Client {client.client_id} training failed: {e}")
+                continue
+                
+        if not client_results:
+            raise ServerOperationError(f"No clients completed training in round {round_number}")
+            
+        # 3. 聚合模型
+        aggregated_state = self.aggregate_models(client_results, client_weights)
+        self._global_model.load_state_dict(aggregated_state)
+        
+        # 4. 计算轮次指标
+        round_metrics = self._compute_round_metrics(round_number, selected_clients, client_weights)
+        
+        # 添加客户端指标的汇总
+        if client_metrics_list:
+            # 计算所有客户端的平均指标
+            avg_train_acc = sum(m.get('train_acc', 0) for m in client_metrics_list) / len(client_metrics_list)
+            avg_train_loss = sum(m.get('train_loss', 0) for m in client_metrics_list) / len(client_metrics_list)
+            avg_test_acc = sum(m.get('test_acc', 0) for m in client_metrics_list) / len(client_metrics_list)
+            avg_test_f1 = sum(m.get('test_f1', 0) for m in client_metrics_list) / len(client_metrics_list)
+            avg_train_f1 = sum(m.get('train_f1', 0) for m in client_metrics_list) / len(client_metrics_list)
+            
+            round_metrics.update({
+                'avg_train_acc': avg_train_acc,
+                'avg_train_loss': avg_train_loss,
+                'avg_test_acc': avg_test_acc,
+                'avg_test_f1': avg_test_f1,
+                'avg_train_f1': avg_train_f1,
+                'client_metrics': client_metrics_list
+            })
+        
+        # 保存服务器日志
+        server_log_path = self._path_manager.server_round_log(round_number)
+        server_log_content = {
+            "round": round_number,
+            "num_clients": len(selected_clients),
+            "total_samples": sum(client_weights),
+            "round_metrics": round_metrics,
+            "timestamp": datetime.now().isoformat()
+        }
+        self.log_manager.write_metrics_json(server_log_path, server_log_content)
+        
+        # 保存服务器指标
+        server_metrics_path = self._path_manager.server_round_metrics(round_number)
+        self.log_manager.write_metrics_json(server_metrics_path, round_metrics)
+        
+        # 5. 保存检查点
+        self.save_checkpoint(round_number, round_metrics)
+        
+        return round_metrics
+
     def save_checkpoint(self, round_number: int, metrics: Dict[str, Any]) -> None:
         """
         保存检查点
@@ -238,10 +389,6 @@ class FederatedServer(AbstractServer):
             round_number: 轮次号
             metrics: 轮次指标
         """
-        from ..training.checkpoints import save_client_round
-        from ..training.lora_utils import save_lora_checkpoint
-        from ..training.adalora_utils import save_adalora_checkpoint
-        from ..training.logging_utils import write_text_log
         
         for client in self._clients:
             try:
@@ -254,27 +401,34 @@ class FederatedServer(AbstractServer):
                 
                 ckpt_path = self._path_manager.client_round_ckpt(client.client_id, round_number)
                 
+                # Get client model state from stored states
+                client_model_state = self._client_model_states.get(client.client_id)
+                if not client_model_state:
+                    self._logger.warning(f"No model state found for client {client.client_id}, skipping checkpoint")
+                    continue
+                
                 # 根据模式选择保存方式
                 if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
-                    # AdaLoRA模式：保存AdaLoRA权重
+                    # AdaLoRA模式：需要创建模型实例并加载状态
+                    client_model = self._model_ctor()
+                    client_model.load_state_dict(client_model_state)
                     success = self._safe_save_checkpoint(
-                        save_adalora_checkpoint, log_file, ckpt_path,
-                        client.global_model if hasattr(client, 'global_model') else None,
-                        ckpt_path, meta
+                        self.adalora_manager.save_adalora_checkpoint, log_file, ckpt_path,
+                        client_model, ckpt_path, meta
                     )
                 elif self._lora_cfg and self._lora_cfg.get('replaced_modules'):
-                    # LoRA模式：保存LoRA权重
+                    # LoRA模式：需要创建模型实例并加载状态
+                    client_model = self._model_ctor()
+                    client_model.load_state_dict(client_model_state)
                     success = self._safe_save_checkpoint(
-                        save_lora_checkpoint, log_file, ckpt_path,
-                        client.global_model if hasattr(client, 'global_model') else None,
-                        ckpt_path, meta
+                        self.lora_manager.save_lora_checkpoint, log_file, ckpt_path,
+                        client_model, ckpt_path, meta
                     )
                 else:
-                    # 标准模式：保存完整模型
+                    # 标准模式：直接保存状态字典
                     success = self._safe_save_checkpoint(
-                        save_client_round, log_file, ckpt_path,
-                        client.global_model if hasattr(client, 'global_model') else None,
-                        ckpt_path, meta=meta
+                        self.checkpoint_manager.save_client_checkpoint, log_file, ckpt_path,
+                        client_model_state, ckpt_path, meta=meta
                     )
                     
                 if success:
@@ -291,10 +445,6 @@ class FederatedServer(AbstractServer):
             round_number: 轮次号
             metrics: 轮次指标
         """
-        from ..training.checkpoints import save_global_round
-        from ..training.lora_utils import save_lora_checkpoint
-        from ..training.adalora_utils import save_adalora_checkpoint
-        from ..training.logging_utils import write_text_log
         
         try:
             server_log = self._path_manager.server_round_log(round_number)
@@ -307,19 +457,19 @@ class FederatedServer(AbstractServer):
             if self._adalora_cfg and self._adalora_cfg.get('replaced_modules'):
                 # AdaLoRA模式：保存AdaLoRA权重
                 success = self._safe_save_checkpoint(
-                    save_adalora_checkpoint, server_log, g_path,
+                    self.adalora_manager.save_adalora_checkpoint, server_log, g_path,
                     self._global_model, g_path, g_meta
                 )
             elif self._lora_cfg and self._lora_cfg.get('replaced_modules'):
                 # LoRA模式：保存LoRA权重
                 success = self._safe_save_checkpoint(
-                    save_lora_checkpoint, server_log, g_path,
+                    self.lora_manager.save_lora_checkpoint, server_log, g_path,
                     self._global_model, g_path, g_meta
                 )
             else:
                 # 标准模式：保存完整模型
                 success = self._safe_save_checkpoint(
-                    save_global_round, server_log, g_path,
+                    self.checkpoint_manager.save_server_checkpoint, server_log, g_path,
                     self._global_model.state_dict(), g_path, meta=g_meta
                 )
                 
@@ -337,7 +487,6 @@ class FederatedServer(AbstractServer):
             round_number: 轮次号
             metrics: 轮次指标
         """
-        from ..training.logging_utils import write_metrics_json
         
         try:
             round_summary = {
@@ -349,7 +498,7 @@ class FederatedServer(AbstractServer):
             }
             
             round_metrics_path = self._path_manager.round_metrics(round_number)
-            write_metrics_json(round_metrics_path, round_summary)
+            self.log_manager.write_metrics_json(round_metrics_path, round_summary)
             
         except Exception as e:
             self._logger.error(f"Failed to save round metrics: {e}")
@@ -361,16 +510,24 @@ class FederatedServer(AbstractServer):
         Args:
             round_number: 轮次号
         """
-        from ..training.plotting import plot_all_clients_metrics
         
         try:
+            # Using metrics_visualizer instead of direct import
+            
+            # 生成客户端图表
             client_ids = [client.client_id for client in self._clients]
-            plot_all_clients_metrics(
+            self.metrics_visualizer.plot_all_clients_metrics(
                 client_ids=client_ids,
                 metrics_clients_dir=self._path_manager.metrics_clients_dir,
                 plots_dir=self._path_manager.plots_clients_dir,
                 current_round=round_number
             )
+            
+            # 生成服务器图表 - 仅在最后一轮或者自动验证时生成
+            # Server plots show aggregated metrics across all rounds
+            # We don't generate per-round server plots as per the requirement
+            self._logger.info(f"Server plots will be generated after all rounds complete or during auto-evaluation")
+            
         except Exception as e:
             self._logger.error(f"Failed to generate metrics plots: {e}")
             
@@ -513,20 +670,20 @@ class FederatedServer(AbstractServer):
     # 辅助方法
     def safe_write_logs(self, log_file: str, server_log: str, msg: str) -> None:
         """安全地写入日志到多个文件"""
-        from ..training.logging_utils import write_text_log
+        # Using log_manager instead of direct import
         
         for log_path in [log_file, server_log]:
             try:
-                write_text_log(log_path, msg)
+                self.log_manager.write_text_log(log_path, msg)
             except Exception as e:
                 print(f"[Error] Failed to write log {log_path}: {e}")
                 
     def safe_write_single_log(self, log_path: str, msg: str) -> None:
         """安全地写入日志到单个文件"""
-        from ..training.logging_utils import write_text_log
+        # Using log_manager instead of direct import
         
         try:
-            write_text_log(log_path, msg)
+            self.log_manager.write_text_log(log_path, msg)
         except Exception as e:
             print(f"[Error] Failed to write log {log_path}: {e}")
             
@@ -535,8 +692,8 @@ class FederatedServer(AbstractServer):
         try:
             save_func(*args, **kwargs)
             try:
-                write_text_log(log_file, success_msg)
-                write_text_log(server_log, success_msg)
+                self.log_manager.write_text_log(log_file, success_msg)
+                self.log_manager.write_text_log(server_log, success_msg)
                 print(f"  Saved to: {print_path}")
                 return True
             except Exception as e:

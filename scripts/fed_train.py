@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader
 from src.utils import load_two_configs, build_argparser, validate_training_config, set_seed, PathManager, get_device
 from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_label_shift, partition_imdb_label_shift
 from src.models import create_model
-from src.training import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
-from src.training.adalora_utils import inject_adalora_modules, mark_only_adalora_as_trainable, create_rank_allocator, get_adalora_parameter_stats
+from src.strategies.training.lora_manager import LoRAManager
+from src.strategies.training.adalora_manager import AdaLoRAManager
 from src.implementations.clients.federated_client import FederatedClient
 from src.implementations.servers.federated_server import FederatedServer
 
@@ -163,28 +163,35 @@ def main():
 		if not os.path.isabs(base_model_path):
 			base_model_path = os.path.join(cfg.get('logging', {}).get('root', './outputs'), base_model_path)
 
+		# 创建AdaLoRA管理器
+		adalora_manager = AdaLoRAManager(
+			r=adalora_cfg.get('initial_r', 8),
+			alpha=adalora_cfg.get('alpha', 16),
+			dropout=adalora_cfg.get('dropout', 0.0),
+			target_modules=adalora_cfg.get('target_modules', ['Linear', 'Embedding']),
+			budget=adalora_cfg.get('budget', 100),
+			beta1=adalora_cfg.get('beta1', 0.85),
+			beta2=adalora_cfg.get('beta2', 0.85),
+			orth_reg_weight=adalora_cfg.get('orth_reg_weight', 0.1)
+		)
+
 		try:
-			base_model_metadata = load_base_model_checkpoint(global_model, base_model_path, strict=False)
+			adalora_manager.load_base_model_checkpoint(global_model, base_model_path)
+			base_model_metadata = {"loaded": True, "path": base_model_path}
 			print(f"[AdaLoRA] Base model loaded successfully: {base_model_path}")
 		except Exception as e:
 			print(f"[Error] Failed to load base model: {e}")
 			print(f"[AdaLoRA] Will train from scratch")
+			base_model_metadata = {"loaded": False}
 
 		# 步骤2：注入AdaLoRA模块
-		target_modules = adalora_cfg.get('target_modules', ['Linear', 'Embedding'])
-		replaced_modules = inject_adalora_modules(
-			global_model,
-			r=adalora_cfg.get('initial_r', 8),
-			alpha=adalora_cfg.get('alpha', 16),
-			dropout=adalora_cfg.get('dropout', 0.0),
-			target_modules=target_modules
-		)
+		replaced_modules = adalora_manager.inject_adalora_modules(global_model)
 
 		# 步骤3：标记只有AdaLoRA参数可训练
-		mark_only_adalora_as_trainable(global_model, adalora_cfg.get('train_classifier_head', True))
+		adalora_manager.mark_only_adalora_as_trainable(global_model, adalora_cfg.get('train_classifier_head', True))
 
 		# 步骤4：创建RankAllocator
-		rank_allocator = create_rank_allocator(global_model, adalora_cfg)
+		rank_allocator = adalora_manager.create_rank_allocator(global_model, update_freq=200)
 
 		# 构建有效的AdaLoRA配置字典
 		adalora_cfg_effective = {
@@ -198,8 +205,11 @@ def main():
 		print(f"[AdaLoRA] Injected AdaLoRA into {len(replaced_modules)} modules: {replaced_modules}")
 
 		# 显示模型参数统计信息
-		param_stats = get_adalora_parameter_stats(global_model)
-		print(f"[AdaLoRA] Total params: {param_stats['total_params']:,}, trainable params: {param_stats['trainable_params']:,} ({param_stats['trainable_percentage']:.2f}%)")
+		param_stats = adalora_manager.get_adalora_parameter_stats(global_model)
+		trainable_params = sum(p.numel() for p in global_model.parameters() if p.requires_grad)
+		total_params = sum(p.numel() for p in global_model.parameters())
+		trainable_percentage = 100.0 * trainable_params / total_params if total_params > 0 else 0.0
+		print(f"[AdaLoRA] Total params: {total_params:,}, trainable params: {trainable_params:,} ({trainable_percentage:.2f}%)")
 
 	# LoRA处理
 	elif use_lora:
@@ -217,25 +227,28 @@ def main():
 			print("[Error] 请在 configs/federated.yaml 的 lora.base_model_path 中设置有效路径")
 			return
 
-			try:
-				base_model_metadata = load_base_model_checkpoint(global_model, base_model_path, strict=False)
-				print(f"[LoRA] Base model loaded successfully: {base_model_path}")
-			except Exception as e:
-				print(f"[Error] Failed to load base model: {e}")
-				print(f"[LoRA] Will train from scratch")
-
-		# 步骤2：注入LoRA模块（支持Linear和Embedding等通用组件）
-		target_modules = lora_cfg.get('target_modules', ['Linear', 'Embedding'])
-		replaced_modules = inject_lora_modules(
-			global_model,
+		# 创建LoRA管理器
+		lora_manager = LoRAManager(
 			r=lora_cfg.get('r', 8),
 			alpha=lora_cfg.get('alpha', 16),
 			dropout=lora_cfg.get('dropout', 0.0),
-			target_modules=target_modules
+			target_modules=lora_cfg.get('target_modules', ['Linear', 'Embedding'])
 		)
 
+		try:
+			lora_manager.load_base_model_checkpoint(global_model, base_model_path)
+			base_model_metadata = {"loaded": True, "path": base_model_path}
+			print(f"[LoRA] Base model loaded successfully: {base_model_path}")
+		except Exception as e:
+			print(f"[Error] Failed to load base model: {e}")
+			print(f"[LoRA] Will train from scratch")
+			base_model_metadata = {"loaded": False}
+
+		# 步骤2：注入LoRA模块（支持Linear和Embedding等通用组件）
+		replaced_modules = lora_manager.inject_lora_modules(global_model)
+
 		# 步骤3：标记只有LoRA参数可训练
-		mark_only_lora_as_trainable(global_model, lora_cfg.get('train_classifier_head', True))
+		lora_manager.mark_only_lora_as_trainable(global_model, lora_cfg.get('train_classifier_head', True))
 
 		# 构建有效的LoRA配置字典
 		lora_cfg_effective = {

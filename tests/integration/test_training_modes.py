@@ -17,8 +17,8 @@ from src.implementations.servers import FederatedServer
 from src.implementations.clients import FederatedClient
 from src.strategies.aggregation import FedAvgStrategy, LoRAFedAvgStrategy, AdaLoRAFedAvgStrategy
 from src.utils.paths import PathManager
-from src.training.lora_utils import inject_lora_modules, mark_only_lora_as_trainable
-from src.training.adalora_utils import inject_adalora_modules, mark_only_adalora_as_trainable
+from src.strategies.training.lora_manager import LoRAManager
+from src.strategies.training.adalora_manager import AdaLoRAManager
 
 
 class TestModel(nn.Module):
@@ -116,14 +116,16 @@ class TestTrainingModes:
         """Test LoRA federated learning mode"""
         # Create model with LoRA
         model = TestModel()
-        replaced_modules = inject_lora_modules(model, r=8, alpha=16, target_modules=['Linear'])
-        mark_only_lora_as_trainable(model, train_classifier_head=True)
+        lora_manager = LoRAManager(r=8, alpha=16, target_modules=['Linear'])
+        replaced_modules = lora_manager.inject_lora_modules(model)
+        lora_manager.mark_only_lora_as_trainable(model, train_classifier_head=True)
         
         # Update model constructor to return LoRA model
         def lora_model_constructor():
             model = TestModel()
-            inject_lora_modules(model, r=8, alpha=16, target_modules=['Linear'])
-            mark_only_lora_as_trainable(model, train_classifier_head=True)
+            lora_manager = LoRAManager(r=8, alpha=16, target_modules=['Linear'])
+            lora_manager.inject_lora_modules(model)
+            lora_manager.mark_only_lora_as_trainable(model, train_classifier_head=True)
             return model
         
         config = {
@@ -179,14 +181,16 @@ class TestTrainingModes:
         """Test AdaLoRA federated learning mode"""
         # Create model with AdaLoRA
         model = TestModel()
-        replaced_modules = inject_adalora_modules(model, r=8, alpha=16, target_modules=['Linear'])
-        mark_only_adalora_as_trainable(model, train_classifier_head=True)
+        adalora_manager = AdaLoRAManager(r=8, alpha=16, target_modules=['Linear'])
+        replaced_modules = adalora_manager.inject_adalora_modules(model)
+        adalora_manager.mark_only_adalora_as_trainable(model, train_classifier_head=True)
         
         # Update model constructor to return AdaLoRA model
         def adalora_model_constructor():
             model = TestModel()
-            inject_adalora_modules(model, r=8, alpha=16, target_modules=['Linear'])
-            mark_only_adalora_as_trainable(model, train_classifier_head=True)
+            adalora_manager = AdaLoRAManager(r=8, alpha=16, target_modules=['Linear'])
+            adalora_manager.inject_adalora_modules(model)
+            adalora_manager.mark_only_adalora_as_trainable(model, train_classifier_head=True)
             return model
         
         config = {

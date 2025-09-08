@@ -88,19 +88,36 @@ def get_trainable_keys(model: torch.nn.Module) -> Set[str]:
 	return trainable_keys
 
 
-def adalora_fedavg(adalora_state_dicts: List[Dict[str, torch.Tensor]], num_samples: List[int], trainable_keys: Set[str] = None) -> Dict[str, torch.Tensor]:
+def adalora_fedavg(adalora_state_dicts: List[Dict[str, torch.Tensor]], 
+                  num_samples: List[int], 
+                  trainable_keys: Set[str] = None,
+                  aggregation_strategy: str = "fedavg") -> Dict[str, torch.Tensor]:
 	"""
-	AdaLoRA专用联邦平均算法，只聚合可训练的AdaLoRA权重和分类头
+	AdaLoRA专用联邦平均算法，支持多种聚合策略
 
 	Args:
 		adalora_state_dicts: AdaLoRA模型状态字典列表
 		num_samples: 各客户端样本数量列表
 		trainable_keys: 可训练参数的键名集合，如果为None则聚合所有权重
+		aggregation_strategy: 聚合策略 ("fedavg", "zero_padding", "rank_based", "svd_based")
 
 	Returns:
-		聚合后的AdaLoRA模型状态字典
+		聚合后的AdaLoRA模型状态字典 或 SVD三元组（当strategy为"zero_padding"时）
 	"""
 	assert len(adalora_state_dicts) == len(num_samples) and len(adalora_state_dicts) > 0
+	
+	# 如果使用零补全策略，调用专门的算法
+	if aggregation_strategy == "zero_padding":
+		from .adalora_zero_padding import adalora_zero_padding_aggregation
+		
+		# 计算权重
+		total = float(sum(num_samples))
+		weights = [n / total for n in num_samples]
+		
+		# 返回SVD三元组而不是state_dict
+		return adalora_zero_padding_aggregation(adalora_state_dicts, weights)
+	
+	# 传统的加权平均策略（向后兼容）
 	total = float(sum(num_samples))
 	new_state: Dict[str, torch.Tensor] = {}
 

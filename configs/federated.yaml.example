@@ -35,6 +35,13 @@ adalora:
   orth_regu_weight: 0.1           # 正交正则化权重
   log_interval: 500               # 日志记录间隔
   
+  # 联邦聚合策略配置
+  aggregation_strategy: "zero_padding"  # 聚合策略：["fedavg", "zero_padding", "rank_based", "svd_based"]
+                                       # zero_padding: 零补全SVD融合策略（推荐用于异构秩场景）
+                                       # fedavg: 传统加权平均策略
+                                       # rank_based: 基于秩的对齐聚合
+                                       # svd_based: SVD矩阵空间聚合
+  
   # 继承基础LoRA配置
   alpha: 16
   dropout: 0.05

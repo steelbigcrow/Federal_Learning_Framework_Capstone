@@ -19,7 +19,7 @@ class Client:
 	负责本地模型训练、数据分割和本地评估
 	"""
 
-	def __init__(self, client_id: int, model_ctor, train_loader, device, optimizer_cfg: Dict, use_amp: bool = False, test_ratio: float = 0.3):
+	def __init__(self, client_id: int, model_ctor, train_loader, device, optimizer_cfg: Dict, use_amp: bool = False, test_ratio: float = 0.3, adalora_target_ranks: Dict[str, int] = None):
 		"""
 		初始化联邦学习客户端
 
@@ -31,6 +31,7 @@ class Client:
 			optimizer_cfg: 优化器配置
 			use_amp: 是否使用自动混合精度
 			test_ratio: 测试集比例
+			adalora_target_ranks: AdaLoRA各层目标秩配置
 		"""
 		self.id = client_id
 		self.model_ctor = model_ctor
@@ -38,6 +39,7 @@ class Client:
 		self.optimizer_cfg = optimizer_cfg
 		self.use_amp = use_amp
 		self.test_ratio = test_ratio
+		self.adalora_target_ranks = adalora_target_ranks or {}
 
 		# 将接收到的训练数据分割为训练集和测试集
 		original_dataset = train_loader.dataset

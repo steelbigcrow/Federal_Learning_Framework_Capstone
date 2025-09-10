@@ -167,23 +167,14 @@ class Server:
 			# 根据模式选择合适的聚合策略
 			try:
 				if self.adalora_cfg and self.adalora_cfg.get('replaced_modules'):
-					# AdaLoRA模式：支持多种聚合策略
-					aggregation_strategy = self.adalora_cfg.get('aggregation_strategy', 'fedavg')
+					# AdaLoRA模式：使用标准FedAvg聚合策略
 					trainable_keys = get_trainable_keys(self.global_model)
-					print(f"[AdaLoRA Aggregation] Strategy: {aggregation_strategy}")
+					print(f"[AdaLoRA Aggregation] Using standard FedAvg strategy")
 					print(f"[AdaLoRA Aggregation] Trainable parameters count: {len(trainable_keys)}")
 
-					aggregation_result = adalora_fedavg(state_dicts, num_samples, trainable_keys, aggregation_strategy)
-					
-					# 检查返回结果类型
-					if aggregation_strategy == "zero_padding":
-						# 返回的是SVD三元组，需要分发给客户端进行自适应重构
-						print(f"[Round {r}/{num_rounds}] AdaLoRA zero-padding aggregation completed, preparing SVD distribution...")
-						self._distribute_svd_triplets(aggregation_result, r)
-					else:
-						# 传统方式：直接更新全局模型
-						self.global_model.load_state_dict(aggregation_result, strict=False)
-						print(f"[Round {r}/{num_rounds}] AdaLoRA {aggregation_strategy} aggregation completed")
+					aggregation_result = adalora_fedavg(state_dicts, num_samples, trainable_keys)
+					self.global_model.load_state_dict(aggregation_result, strict=False)
+					print(f"[Round {r}/{num_rounds}] AdaLoRA FedAvg aggregation completed")
 						
 				elif self.lora_cfg and self.lora_cfg.get('replaced_modules'):
 					# LoRA模式：只聚合可训练的权重（LoRA权重+分类头）
@@ -391,62 +382,4 @@ class Server:
 		else:
 			return {"round": round_num, "lora": self.lora_cfg}
 
-	def _distribute_svd_triplets(self, svd_triplets: Dict, round_num: int) -> None:
-		"""
-		分发SVD三元组给客户端进行自适应重构
-		
-		Args:
-			svd_triplets: 聚合后的SVD三元组字典
-			round_num: 当前轮数
-		"""
-		from .adalora_zero_padding import reconstruct_adalora_state_dict
-		
-		print(f"[SVD Distribution] Distributing SVD triplets to {len(self.clients)} clients...")
-		
-		# 为每个客户端重构适合其秩的AdaLoRA参数
-		for client in self.clients:
-			try:
-				# 获取客户端当前的目标秩配置
-				client_target_ranks = self._get_client_target_ranks(client)
-				
-				# 从SVD三元组重构状态字典
-				reconstructed_state_dict = reconstruct_adalora_state_dict(
-					svd_triplets=svd_triplets,
-					original_state_dict=self.global_model.state_dict(),
-					target_ranks=client_target_ranks,
-					lora_alpha=self.adalora_cfg.get('lora_alpha', 16)
-				)
-				
-				# 更新全局模型（用于下一轮分发）
-				self.global_model.load_state_dict(reconstructed_state_dict, strict=False)
-				
-				print(f"[SVD Distribution] Client {client.id} received reconstructed AdaLoRA parameters")
-				
-			except Exception as e:
-				print(f"[Error] Failed to distribute SVD triplet to client {client.id}: {e}")
-
-	def _get_client_target_ranks(self, client) -> Dict[str, int]:
-		"""
-		获取客户端的目标秩配置
-		
-		Args:
-			client: 客户端对象
-			
-		Returns:
-			各层的目标秩字典
-		"""
-		# 如果客户端有自定义秩配置，使用客户端配置
-		if hasattr(client, 'adalora_target_ranks') and client.adalora_target_ranks:
-			return client.adalora_target_ranks
-		
-		# 否则使用全局配置的默认秩
-		default_rank = self.adalora_cfg.get('r', 8)
-		
-		# 从全局模型中提取AdaLoRA层名称
-		target_ranks = {}
-		for name, param in self.global_model.named_parameters():
-			if 'lora_A' in name:
-				layer_name = name.replace('.lora_A', '')
-				target_ranks[layer_name] = default_rank
-				
-		return target_ranks
+	# Removed zero-padding related methods: _distribute_svd_triplets and _get_client_target_ranks

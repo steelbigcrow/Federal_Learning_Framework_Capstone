@@ -180,3 +180,112 @@ def plot_all_clients_metrics(client_ids: List[int], metrics_clients_dir: str, pl
             
             # 绘制图表
             plot_client_metrics(client_id, metrics_history, plot_path)
+
+def load_server_metrics_history(metrics_server_dir: str, current_round: int) -> Dict[str, List]:
+    """
+    加载服务器评估指标历史数据
+    
+    Args:
+        metrics_server_dir: 服务器指标目录
+        current_round: 当前轮数
+    
+    Returns:
+        包含历史数据的字典
+    """
+    history = {
+        'rounds': [],
+        'test_acc': [],
+        'test_loss': [],
+        'test_f1': []
+    }
+    
+    for r in range(1, current_round + 1):
+        server_metrics_file = os.path.join(metrics_server_dir, f"server_eval_round_{r}.json")
+        
+        if os.path.exists(server_metrics_file):
+            try:
+                with open(server_metrics_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                server_eval = data.get('server_evaluation', {})
+                if server_eval:
+                    history['rounds'].append(r)
+                    history['test_acc'].append(server_eval.get('acc', 0.0))
+                    history['test_loss'].append(server_eval.get('loss', 0.0))
+                    history['test_f1'].append(server_eval.get('f1', 0.0))
+                    
+            except Exception as e:
+                print(f"[Warning] Failed to load server metrics for round {r}: {e}")
+                continue
+    
+    return history
+
+def plot_server_metrics(metrics_server_dir: str, plots_server_dir: str, current_round: int):
+    """
+    绘制服务器评估指标图表
+    
+    Args:
+        metrics_server_dir: 服务器指标目录
+        plots_server_dir: 服务器图表保存目录  
+        current_round: 当前轮数
+    """
+    try:
+        # 确保目录存在
+        os.makedirs(plots_server_dir, exist_ok=True)
+        
+        # 加载服务器指标历史
+        history = load_server_metrics_history(metrics_server_dir, current_round)
+        
+        if not history['rounds']:
+            print("[Warning] No server evaluation data available for plotting")
+            return
+        
+        # 创建图表
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('Server Global Model Evaluation Metrics', fontsize=16, fontweight='bold')
+        
+        # 测试准确率
+        axes[0, 0].plot(history['rounds'], history['test_acc'], 'b-o', linewidth=2, markersize=6)
+        axes[0, 0].set_title('Test Accuracy')
+        axes[0, 0].set_xlabel('Round')
+        axes[0, 0].set_ylabel('Accuracy')
+        axes[0, 0].grid(True, alpha=0.3)
+        axes[0, 0].set_ylim([0, 1])
+        
+        # 测试损失
+        axes[0, 1].plot(history['rounds'], history['test_loss'], 'r-o', linewidth=2, markersize=6)
+        axes[0, 1].set_title('Test Loss')
+        axes[0, 1].set_xlabel('Round')
+        axes[0, 1].set_ylabel('Loss')
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # 测试F1分数
+        axes[1, 0].plot(history['rounds'], history['test_f1'], 'g-o', linewidth=2, markersize=6)
+        axes[1, 0].set_title('Test F1 Score')
+        axes[1, 0].set_xlabel('Round')
+        axes[1, 0].set_ylabel('F1 Score')
+        axes[1, 0].grid(True, alpha=0.3)
+        axes[1, 0].set_ylim([0, 1])
+        
+        # 综合对比图
+        ax_combined = axes[1, 1]
+        ax_combined.plot(history['rounds'], history['test_acc'], 'b-o', label='Test Acc', linewidth=2, markersize=4)
+        ax_combined.plot(history['rounds'], history['test_f1'], 'g-o', label='Test F1', linewidth=2, markersize=4)
+        ax_combined.set_title('Combined Metrics')
+        ax_combined.set_xlabel('Round')
+        ax_combined.set_ylabel('Score')
+        ax_combined.grid(True, alpha=0.3)
+        ax_combined.legend()
+        ax_combined.set_ylim([0, 1])
+        
+        plt.tight_layout()
+        
+        # 保存图表
+        plot_path = os.path.join(plots_server_dir, f"server_metrics_round_{current_round}.png")
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        print(f"[Plotting] Server metrics plot saved: {plot_path}")
+        
+    except Exception as e:
+        print(f"[Error] Failed to plot server metrics: {e}")

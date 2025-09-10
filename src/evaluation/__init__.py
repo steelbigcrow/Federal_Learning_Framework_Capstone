@@ -9,6 +9,7 @@ from .evaluator import ModelEvaluator
 from .visualizer import ResultVisualizer
 from .loaders import get_test_loader
 from .metrics import evaluate_model
+from .round_evaluator import RoundEvaluator
 
 
 def evaluate_checkpoint(arch_config_path: str, checkpoint_path: str, 
@@ -72,6 +73,7 @@ __all__ = [
     'ResultVisualizer', 
     'get_test_loader',
     'evaluate_model',
+    'RoundEvaluator',
     'evaluate_checkpoint',
     'auto_evaluate_training'
 ]

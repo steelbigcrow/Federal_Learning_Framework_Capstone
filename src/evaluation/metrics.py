@@ -7,10 +7,7 @@ for MNIST and IMDB datasets.
 
 import torch
 import numpy as np
-from sklearn.metrics import (
-    confusion_matrix, roc_curve, precision_recall_curve,
-    roc_auc_score, average_precision_score
-)
+from sklearn.metrics import confusion_matrix
 
 
 @torch.no_grad()
@@ -24,17 +21,31 @@ def evaluate_mnist_model(model, data_loader, device="cuda"):
         device: Device to run evaluation on
         
     Returns:
-        tuple: (accuracy, confusion_matrix, true_labels, predictions)
+        tuple: (accuracy, confusion_matrix, true_labels, predictions, loss, f1_score)
     """
+    from sklearn.metrics import f1_score
+    import torch.nn.functional as F
+    
     model.to(device).eval()
     
     all_labels = []
     all_predictions = []
+    total_loss = 0.0
+    num_batches = 0
     
     for batch in data_loader:
-        logits = model(batch["x"].to(device))
+        inputs = batch["x"].to(device)
+        labels = batch["y"].to(device)
+        
+        logits = model(inputs)
+        
+        # Calculate loss
+        loss = F.cross_entropy(logits, labels)
+        total_loss += loss.item()
+        num_batches += 1
+        
         predictions = logits.argmax(1).cpu()
-        labels = batch["y"].cpu()
+        labels = labels.cpu()
         
         all_predictions.append(predictions)
         all_labels.append(labels)
@@ -44,9 +55,11 @@ def evaluate_mnist_model(model, data_loader, device="cuda"):
     
     # Calculate metrics
     accuracy = (y_true == y_pred).mean()
+    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    f1 = f1_score(y_true, y_pred, average='weighted')
     cm = confusion_matrix(y_true, y_pred, labels=list(range(10)))
     
-    return accuracy, cm, y_true, y_pred
+    return accuracy, cm, y_true, y_pred, avg_loss, f1
 
 
 @torch.no_grad() 
@@ -60,34 +73,45 @@ def evaluate_imdb_model(model, data_loader, device="cuda"):
         device: Device to run evaluation on
         
     Returns:
-        tuple: (roc_auc, pr_auc, roc_data, pr_data)
+        dict: Evaluation metrics (accuracy, loss, f1_score)
     """
+    from sklearn.metrics import f1_score
+    import torch.nn.functional as F
+    
     model.to(device).eval()
     
     all_labels = []
-    all_probabilities = []
+    all_predictions = []
+    total_loss = 0.0
+    num_batches = 0
     
     for batch in data_loader:
-        logits = model(batch["x"].to(device))
-        # Get probability of positive class (class 1)
-        probs = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
-        labels = batch["y"].numpy()
+        inputs = batch["x"].to(device)
+        labels = batch["y"].to(device)
         
-        all_probabilities.extend(probs.tolist())
+        logits = model(inputs)
+        
+        # Calculate loss
+        loss = F.cross_entropy(logits, labels)
+        total_loss += loss.item()
+        num_batches += 1
+        
+        # Get predictions
+        predictions = torch.argmax(logits, dim=1).cpu().numpy()
+        labels = labels.cpu().numpy()
+        
+        all_predictions.extend(predictions.tolist())
         all_labels.extend(labels.tolist())
     
     y_true = np.asarray(all_labels)
-    y_prob = np.asarray(all_probabilities)
+    y_pred = np.asarray(all_predictions)
     
     # Calculate metrics
-    roc_auc = roc_auc_score(y_true, y_prob)
-    pr_auc = average_precision_score(y_true, y_prob)
+    accuracy = (y_true == y_pred).mean()
+    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    f1 = f1_score(y_true, y_pred, average='binary')  # Binary classification for IMDB
     
-    # Get curve data
-    fpr, tpr, _ = roc_curve(y_true, y_prob)
-    precision, recall, _ = precision_recall_curve(y_true, y_prob)
-    
-    return roc_auc, pr_auc, (fpr, tpr), (precision, recall)
+    return {"accuracy": accuracy, "loss": avg_loss, "f1_score": f1}
 
 
 def evaluate_model(model, data_loader, dataset_name, device="cuda"):
@@ -109,22 +133,23 @@ def evaluate_model(model, data_loader, dataset_name, device="cuda"):
     dataset_name = dataset_name.lower()
     
     if dataset_name == "mnist":
-        accuracy, cm, y_true, y_pred = evaluate_mnist_model(model, data_loader, device)
+        accuracy, cm, y_true, y_pred, loss, f1 = evaluate_mnist_model(model, data_loader, device)
         return {
             "dataset": "mnist",
             "accuracy": float(accuracy),
+            "loss": float(loss),
+            "f1_score": float(f1),
             "confusion_matrix": cm,
             "true_labels": y_true,
             "predictions": y_pred
         }
     elif dataset_name == "imdb":
-        roc_auc, pr_auc, roc_data, pr_data = evaluate_imdb_model(model, data_loader, device)
+        metrics = evaluate_imdb_model(model, data_loader, device)
         return {
             "dataset": "imdb", 
-            "roc_auc": float(roc_auc),
-            "pr_auc": float(pr_auc),
-            "roc_data": roc_data,
-            "pr_data": pr_data
+            "accuracy": float(metrics["accuracy"]),
+            "loss": float(metrics["loss"]),
+            "f1_score": float(metrics["f1_score"])
         }
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")

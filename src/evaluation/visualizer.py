@@ -47,21 +47,15 @@ class ResultVisualizer:
         # Misclassified examples plot
         self._plot_mnist_misclassified(true_labels, predictions, misclassified_limit)
     
-    def visualize_imdb_results(self, roc_auc, pr_auc, roc_data, pr_data):
+    def visualize_imdb_results(self, accuracy):
         """
         Create IMDB evaluation visualizations.
         
         Args:
-            roc_auc: ROC AUC score
-            pr_auc: PR AUC score
-            roc_data: Tuple of (fpr, tpr) for ROC curve
-            pr_data: Tuple of (precision, recall) for PR curve
+            accuracy: Model accuracy score
         """
-        # ROC curve plot
-        self._plot_imdb_roc_curve(roc_auc, roc_data)
-        
-        # PR curve plot  
-        self._plot_imdb_pr_curve(pr_auc, pr_data)
+        # Just log the accuracy - no plots generated
+        print(f"IMDB Model Accuracy: {accuracy:.4f}")
     
     def _plot_mnist_confusion_matrix(self, accuracy, cm):
         """Plot MNIST confusion matrix."""
@@ -113,32 +107,6 @@ class ResultVisualizer:
         plt.tight_layout()
         plt.savefig(self.output_dir / "mnist_misclassified.png", dpi=160)
         plt.close()
-    
-    def _plot_imdb_roc_curve(self, roc_auc, roc_data):
-        """Plot IMDB ROC curve."""
-        fpr, tpr = roc_data
-        
-        plt.figure()
-        plt.plot(fpr, tpr)
-        plt.xlabel("FPR")
-        plt.ylabel("TPR")
-        plt.title(f"ROC (AUC={roc_auc:.4f})")
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "imdb_roc.png", dpi=160)
-        plt.close()
-    
-    def _plot_imdb_pr_curve(self, pr_auc, pr_data):
-        """Plot IMDB Precision-Recall curve."""
-        precision, recall = pr_data
-        
-        plt.figure()
-        plt.plot(recall, precision)
-        plt.xlabel("Recall")
-        plt.ylabel("Precision")
-        plt.title(f"PR (AUC={pr_auc:.4f})")
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "imdb_pr.png", dpi=160)
-        plt.close()
 
 
 def visualize_results(results_dict, output_dir: Path, **kwargs):
@@ -163,10 +131,7 @@ def visualize_results(results_dict, output_dir: Path, **kwargs):
         )
     elif dataset == "imdb":
         visualizer.visualize_imdb_results(
-            roc_auc=results_dict["roc_auc"],
-            pr_auc=results_dict["pr_auc"],
-            roc_data=results_dict["roc_data"],
-            pr_data=results_dict["pr_data"]
+            accuracy=results_dict["accuracy"]
         )
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")

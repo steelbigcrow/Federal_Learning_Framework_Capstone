@@ -3,6 +3,8 @@
 """
 from copy import deepcopy
 from typing import Callable, Dict, List, Optional
+from datetime import datetime
+from pathlib import Path
 
 import torch
 
@@ -48,6 +50,16 @@ class Server:
 
 		# 验证全局模型设备
 		global_model_device = next(self.global_model.parameters()).device
+		
+		# 初始化自动评估器
+		from ..evaluation import RoundEvaluator
+		self.round_evaluator = RoundEvaluator(
+			model_info=self.model_info,
+			device=device,
+			lora_cfg=self.lora_cfg,
+			adalora_cfg=self.adalora_cfg
+		)
+
 
 	def run(self, num_rounds: int, local_epochs: int) -> None:
 		"""
@@ -167,14 +179,19 @@ class Server:
 			# 根据模式选择合适的聚合策略
 			try:
 				if self.adalora_cfg and self.adalora_cfg.get('replaced_modules'):
-					# AdaLoRA模式：使用标准FedAvg聚合策略
+					# AdaLoRA模式：使用零填充聚合策略支持不同秩
 					trainable_keys = get_trainable_keys(self.global_model)
-					print(f"[AdaLoRA Aggregation] Using standard FedAvg strategy")
+					print(f"[AdaLoRA Aggregation] Using zero-padding aggregation strategy")
 					print(f"[AdaLoRA Aggregation] Trainable parameters count: {len(trainable_keys)}")
-
+					
+					# 显示前几个AdaLoRA参数用于调试
+					adalora_keys = [k for k in sorted(list(trainable_keys)) if '.lora_A' in k or '.lora_B' in k]
+					if adalora_keys:
+						print(f"[AdaLoRA Aggregation] AdaLoRA parameters: {adalora_keys[:3]}...")  # 显示前3个
+					
 					aggregation_result = adalora_fedavg(state_dicts, num_samples, trainable_keys)
 					self.global_model.load_state_dict(aggregation_result, strict=False)
-					print(f"[Round {r}/{num_rounds}] AdaLoRA FedAvg aggregation completed")
+					print(f"[Round {r}/{num_rounds}] AdaLoRA zero-padding aggregation completed")
 						
 				elif self.lora_cfg and self.lora_cfg.get('replaced_modules'):
 					# LoRA模式：只聚合可训练的权重（LoRA权重+分类头）
@@ -230,6 +247,18 @@ class Server:
 					print(f"[Error] Failed to save global model: {e}")
 			except Exception as e:
 				print(f"[Error] Global model save process failed: {e}")
+			
+			# 自动评估和可视化（替代原有的服务器端评估）
+			try:
+				# 使用新的 RoundEvaluator 进行自动评估
+				self.round_evaluator.evaluate_round(
+					model=self.global_model,
+					round_num=r,
+					paths_manager=self.paths
+				)
+			except Exception as e:
+				print(f"[Error] Round evaluation failed: {e}")
+			
 			try:
 				round_summary = {
 					"round": r,
@@ -255,6 +284,23 @@ class Server:
 				)
 			except Exception as e:
 				print(f"[Error] Failed to generate client metrics plots: {e}")
+			
+			# 为服务器生成评估指标图表
+			try:
+				from ..training.plotting import plot_server_metrics
+				plot_server_metrics(
+					metrics_server_dir=self.paths.metrics_server_dir,
+					plots_server_dir=self.paths.plots_server_dir,
+					current_round=r
+				)
+			except Exception as e:
+				print(f"[Error] Failed to generate server metrics plots: {e}")
+
+		# 训练完成后生成总体总结
+		try:
+			self.round_evaluator.generate_training_summary(self.paths, num_rounds)
+		except Exception as e:
+			print(f"[Error] Training summary generation failed: {e}")
 
 	# ===== 辅助方法 =====
 
@@ -287,7 +333,7 @@ class Server:
 			print(f"[Error] Failed to write log {log_path}: {e}")
 
 	def safe_save_and_log(self, save_func, success_msg: str,
-						 log_file: str, server_log: str, print_path: str, *args, **kwargs) -> bool:
+			 log_file: str, server_log: str, print_path: str, *args, **kwargs) -> bool:
 		"""
 		安全地执行保存操作并记录日志
 
@@ -382,4 +428,3 @@ class Server:
 		else:
 			return {"round": round_num, "lora": self.lora_cfg}
 
-	# Removed zero-padding related methods: _distribute_svd_triplets and _get_client_target_ranks

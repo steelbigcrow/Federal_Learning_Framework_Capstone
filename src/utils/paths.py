@@ -201,6 +201,18 @@ class PathManager:
 		"""
 		return os.path.join(self.metrics_server_dir, f"round_{round_id}.json")
 
+	def server_round_metrics(self, round_id: int) -> str:
+		"""
+		获取服务器轮次指标文件路径
+
+		Args:
+			round_id: 轮次ID
+
+		Returns:
+			服务器指标文件路径
+		"""
+		return os.path.join(self.metrics_server_dir, f"server_eval_round_{round_id}.json")
+
 	@property
 	def logs_root(self) -> str:
 		"""

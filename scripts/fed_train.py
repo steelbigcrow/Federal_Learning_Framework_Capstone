@@ -41,7 +41,6 @@ def main():
 	parser.add_argument('--use-adalora', action='store_true', help='Enable AdaLoRA fine-tuning')
 	parser.add_argument('--no-cache', action='store_true', help='Disable data caching, load directly from HF')
 	parser.add_argument('--data-cache-dir', type=str, default='./data_cache', help='Data cache directory')
-	parser.add_argument('--auto-eval', action='store_true', help='Automatically evaluate model after training')
 	args = parser.parse_args()
 
 	# 加载配置文件（只使用双配置方式）
@@ -289,27 +288,9 @@ def main():
 	# 执行联邦学习训练
 	server.run(num_rounds, local_epochs)
 	
-	# 自动评估（如果启用）
-	if args.auto_eval:
-		print("\n[auto-eval] Starting automatic evaluation...")
-		try:
-			from src.evaluation import auto_evaluate_training
-			
-			success = auto_evaluate_training(
-				arch_config_path=args.arch_config,
-				train_config_path=args.train_config,
-				use_lora=use_lora,
-				use_adalora=use_adalora,
-				device=str(device),
-				outputs_root=cfg.get('logging', {}).get('root', './outputs'),
-				run_name=cfg.get('run_name'),
-				started_at=training_start_time
-			)
-			
-			if not success:
-				print("[auto-eval] Automatic evaluation failed.")
-		except Exception as e:
-			print(f"[auto-eval] Error during automatic evaluation: {e}")
+	print("\n[Training Complete] Federated learning training completed successfully!")
+	print(f"Training results saved to: {server.paths.root}")
+	print("Evaluation results and plots are automatically generated after each round.")
 
 
 if __name__ == '__main__':

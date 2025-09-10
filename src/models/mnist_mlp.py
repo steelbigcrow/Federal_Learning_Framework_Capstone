@@ -10,12 +10,12 @@ class MnistMLP(nn.Module):
 
 		Args:
 			input_size: 输入特征维度，默认为784 (28*28)
-			hidden_sizes: 隐藏层大小列表，默认为[512, 256]
+			hidden_sizes: 隐藏层大小列表，默认为[200, 200]
 			num_classes: 分类类别数，默认为10 (数字0-9)
 		"""
 		super().__init__()
 		if hidden_sizes is None:
-			hidden_sizes = [512, 256]
+			hidden_sizes = [200, 200]
 
 		# 动态构建网络层
 		layers = []
@@ -25,6 +25,9 @@ class MnistMLP(nn.Module):
 			layers.append(nn.ReLU(inplace=True))  # ReLU激活函数
 			in_dim = h
 		layers.append(nn.Linear(in_dim, num_classes))  # 输出层
+
+
+		# 784,200; 200,200; 200,10
 
 		# 使用Sequential组织所有层
 		self.mlp = nn.Sequential(*layers)

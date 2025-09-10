@@ -140,6 +140,7 @@ outputs/
 *.log
 *.png
 CLAUDE.md
+AGENTS.md
 
 # 配置管理
 # 忽略实际配置文件，但保留示例文件

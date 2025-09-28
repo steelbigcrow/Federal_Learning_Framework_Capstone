@@ -2,47 +2,47 @@ import torch.nn as nn
 
 
 class MnistMLP(nn.Module):
-	"""用于MNIST手写数字识别的多层感知机模型"""
+	"""Multi-layer perceptron model for MNIST handwritten digit recognition"""
 
 	def __init__(self, input_size: int = 784, hidden_sizes=None, num_classes: int = 10):
 		"""
-		初始化MLP模型
+		Initialize MLP model
 
 		Args:
-			input_size: 输入特征维度，默认为784 (28*28)
-			hidden_sizes: 隐藏层大小列表，默认为[200, 200]
-			num_classes: 分类类别数，默认为10 (数字0-9)
+			input_size: input feature dimension, default 784 (28*28)
+			hidden_sizes: list of hidden layer sizes, default [200, 200]
+			num_classes: number of classification classes, default 10 (digits 0-9)
 		"""
 		super().__init__()
 		if hidden_sizes is None:
 			hidden_sizes = [200, 200]
 
-		# 动态构建网络层
+		# dynamically build network layers
 		layers = []
 		in_dim = input_size
 		for h in hidden_sizes:
-			layers.append(nn.Linear(in_dim, h))  # 全连接层
-			layers.append(nn.ReLU(inplace=True))  # ReLU激活函数
+			layers.append(nn.Linear(in_dim, h))  # fully connected layer
+			layers.append(nn.ReLU(inplace=True))  # ReLU activation function
 			in_dim = h
-		layers.append(nn.Linear(in_dim, num_classes))  # 输出层
+		layers.append(nn.Linear(in_dim, num_classes))  # output layer
 
 
 		# 784,200; 200,200; 200,10
 
-		# 使用Sequential组织所有层
+		# organize all layers using Sequential
 		self.mlp = nn.Sequential(*layers)
 
 	def forward(self, x):
 		"""
-		前向传播
+		Forward propagation
 
 		Args:
-			x: 输入图像，形状为 (B, 1, 28, 28) 其中B是批次大小
+			x: input image with shape (B, 1, 28, 28) where B is batch size
 
 		Returns:
-			分类 logits，形状为 (B, 10)
+			classification logits with shape (B, 10)
 		"""
 		# x: (B, 1, 28, 28)
 		b = x.size(0)
-		x = x.view(b, -1)  # 展平图像为向量 (B, 784)
-		return self.mlp(x)  # MLP前向传播
+		x = x.view(b, -1)  # flatten image to vector (B, 784)
+		return self.mlp(x)  # MLP forward propagation

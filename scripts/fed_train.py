@@ -16,7 +16,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.utils import load_two_configs, build_argparser, validate_training_config, set_seed, PathManager, get_device
-from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_label_shift, partition_imdb_label_shift
+from src.datasets import get_mnist_datasets, get_imdb_splits, partition_mnist_label_shift, partition_mnist_random, partition_imdb_label_shift, partition_imdb_random
 from src.models import create_model
 from src.training import inject_lora_modules, mark_only_lora_as_trainable, load_base_model_checkpoint
 from src.training.adalora_utils import inject_adalora_modules, mark_only_adalora_as_trainable, create_rank_allocator, get_adalora_parameter_stats
@@ -104,13 +104,22 @@ def main():
 	pin_memory = cfg.get('data', {}).get('pin_memory', False)
 	save_client_each_round = cfg.get('checkpoint', {}).get('save_client_each_round', True)
 
+	# 获取数据分布模式
+	data_distribution = cfg.get('federated', {}).get('data_distribution', 'label_shift')
+	print(f"[Data] Using data distribution mode: {data_distribution}")
+	
 	# 根据数据集类型准备数据和创建全局模型
 	if ds_name == 'mnist':
 		# MNIST数据集处理
 		use_cache = not args.no_cache
 		print(f"[Data] Using cache: {use_cache}, cache directory: {args.data_cache_dir}")
 		train_ds = get_mnist_datasets(root=args.data_cache_dir, use_cache=use_cache)
-		parts = partition_mnist_label_shift(train_ds, num_clients=num_clients)
+		
+		# 根据数据分布模式选择分区函数
+		if data_distribution == 'random':
+			parts = partition_mnist_random(train_ds, num_clients=num_clients)
+		else:  # 默认使用 label_shift
+			parts = partition_mnist_label_shift(train_ds, num_clients=num_clients)
 
 		# 创建模型构造函数
 		def model_ctor():
@@ -127,7 +136,12 @@ def main():
 			min_freq=cfg.get('vocab_min_freq', 2),
 			use_cache=use_cache
 		)
-		parts = partition_imdb_label_shift(train_iter, num_clients=num_clients)
+		
+		# 根据数据分布模式选择分区函数
+		if data_distribution == 'random':
+			parts = partition_imdb_random(train_iter, num_clients=num_clients)
+		else:  # 默认使用 label_shift
+			parts = partition_imdb_label_shift(train_iter, num_clients=num_clients)
 
 		# 创建模型构造函数
 		def model_ctor():
@@ -257,7 +271,14 @@ def main():
 		for cid in range(num_clients):
 			train_subset = parts[cid]  # 每个客户端的训练数据子集
 			train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
-			clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer']))
+			
+			# 根据数据分布模式决定是否在客户端分割测试集
+			if data_distribution == 'random':
+				# 随机分布模式：客户端将数据70%/30%分割为训练/测试集
+				clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer'], test_ratio=0.3))
+			else:
+				# 标签偏移模式：使用全部数据进行训练（测试由服务端统一评估）
+				clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer'], test_ratio=0.0))
 
 	elif ds_name == 'imdb':
 		# 为IMDB数据集创建客户端
@@ -266,7 +287,14 @@ def main():
 			train_list = parts[cid]  # 每个客户端的训练数据列表
 			collate = CollateText(text_to_ids, pad_idx, cfg.get('max_seq_len', 256))
 			train_loader = DataLoader(train_list, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=collate)
-			clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer']))
+			
+			# 根据数据分布模式决定是否在客户端分割测试集
+			if data_distribution == 'random':
+				# 随机分布模式：客户端将数据70%/30%分割为训练/测试集
+				clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer'], test_ratio=0.3))
+			else:
+				# 标签偏移模式：使用全部数据进行训练（测试由服务端统一评估）
+				clients.append(Client(cid, model_ctor, train_loader, str(device), cfg['optimizer'], test_ratio=0.0))
 
 	# 构建模型信息字典
 	model_info = {

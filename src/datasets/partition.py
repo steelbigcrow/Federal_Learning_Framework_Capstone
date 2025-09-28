@@ -4,6 +4,34 @@ import random
 from torch.utils.data import Subset
 
 
+def partition_mnist_random(train_dataset, num_clients: int = 10, seed: int = 42) -> Dict[int, Subset]:
+	"""为 MNIST 进行随机划分：将训练数据随机切分给各客户端。
+	返回 {client_id: train_subset}，Client自行将70%作为训练集，30%作为测试集
+	"""
+	rng = random.Random(seed)
+	# 兼容 torchvision 或 HF 包装
+	labels = getattr(train_dataset, 'targets', None)
+	if labels is None:
+		raise ValueError('train_dataset must expose targets for MNIST partitioning')
+	
+	# 获取所有样本的索引
+	all_indices = list(range(len(train_dataset)))
+	rng.shuffle(all_indices)
+	
+	# 计算每个客户端应该获得的数据量
+	total_samples = len(all_indices)
+	samples_per_client = total_samples // num_clients
+	
+	client_subsets: Dict[int, Subset] = {}
+	for client_id in range(num_clients):
+		start_idx = client_id * samples_per_client
+		end_idx = start_idx + samples_per_client if client_id < num_clients - 1 else total_samples
+		client_indices = all_indices[start_idx:end_idx]
+		client_subsets[client_id] = Subset(train_dataset, client_indices)
+	
+	return client_subsets
+
+
 def partition_mnist_label_shift(train_dataset, num_clients: int = 10, seed: int = 42) -> Dict[int, Subset]:
 	"""为 MNIST 进行标签偏移划分：10 个 client，每个仅包含唯一一个数字标签。
 	返回 {client_id: train_subset}，Client自行划分训练集和测试集
@@ -24,6 +52,41 @@ def partition_mnist_label_shift(train_dataset, num_clients: int = 10, seed: int 
 		# 直接返回所有数据，不再预先分割
 		client_subsets[client_id] = Subset(train_dataset, indices)
 	return client_subsets
+
+
+def partition_imdb_random(train_data: Any, num_clients: int = 10, seed: int = 42) -> Dict[int, List[Tuple[int, str]]]:
+	"""为 IMDB 进行随机划分：将训练数据随机切分给各客户端。
+	输入 train_data 可为 HF 的 train split（dict 风格）。
+	返回 {client_id: data_list}，元素为 (label, text) 且 label 为 0/1，Client自行将70%作为训练集，30%作为测试集。
+	"""
+	# 将 HF 数据集转换为 (label, text) 列表
+	def to_list(data: Any) -> List[Tuple[int, str]]:
+		try:
+			return [(int(data[i]['label']), data[i]['text']) for i in range(len(data))]
+		except Exception:
+			# 退化支持已有 tuple 形式
+			return [(0 if (x[0] == 'neg' or x[0] == 0) else 1, x[1]) for x in list(data)]
+
+	data_list = to_list(train_data)
+	rng = random.Random(seed)
+	rng.shuffle(data_list)
+
+	# 计算每个客户端应该获得的数据量
+	total_samples = len(data_list)
+	samples_per_client = total_samples // num_clients
+	
+	client_parts: Dict[int, List] = {}
+	for cid in range(num_clients):
+		start_idx = cid * samples_per_client
+		end_idx = start_idx + samples_per_client if cid < num_clients - 1 else total_samples
+		client_parts[cid] = data_list[start_idx:end_idx]
+		
+		# 打印每个客户端的数据统计
+		neg_count = sum(1 for label, _ in client_parts[cid] if label == 0)
+		pos_count = sum(1 for label, _ in client_parts[cid] if label == 1)
+		print(f"[Data Distribution] Client {cid}: total={len(client_parts[cid])}, neg={neg_count}, pos={pos_count}, ratio={pos_count/(neg_count+pos_count):.2f}")
+	
+	return client_parts
 
 
 def partition_imdb_label_shift(train_data: Any, num_clients: int = 10, seed: int = 42) -> Dict[int, List[Tuple[int, str]]]:

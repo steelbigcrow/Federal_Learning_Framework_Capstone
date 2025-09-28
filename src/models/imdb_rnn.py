@@ -3,43 +3,43 @@ import torch.nn as nn
 
 
 class TextRNN(nn.Module):
-	"""基于RNN的文本分类模型"""
+	"""RNN-based text classification model"""
 
 	def __init__(self, vocab_size: int, embedding_dim: int = 128, hidden_size: int = 128, num_layers: int = 1, bidirectional: bool = False, pad_idx: int = 1, num_classes: int = 2):
 		"""
-		初始化RNN文本分类模型
+		Initialize RNN text classification model
 
 		Args:
-			vocab_size: 词汇表大小
-			embedding_dim: 词嵌入维度
-			hidden_size: RNN隐藏层大小
-			num_layers: RNN层数
-			bidirectional: 是否双向RNN
-			pad_idx: 填充标记的索引
-			num_classes: 分类类别数
+			vocab_size: vocabulary size
+			embedding_dim: word embedding dimension
+			hidden_size: RNN hidden layer size
+			num_layers: number of RNN layers
+			bidirectional: whether to use bidirectional RNN
+			pad_idx: padding token index
+			num_classes: number of classification classes
 		"""
 		super().__init__()
-		# 词嵌入层
+		# word embedding layer
 		self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=pad_idx)
-		# RNN层
+		# RNN layer
 		self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers=num_layers, batch_first=True, bidirectional=bidirectional)
-		# 计算输出维度（双向则乘2）
+		# calculate output dimension (multiply by 2 if bidirectional)
 		out_dim = hidden_size * (2 if bidirectional else 1)
-		# 分类器
+		# classifier
 		self.classifier = nn.Linear(out_dim, num_classes)
 
 	def forward(self, x):
 		"""
-		前向传播
+		Forward propagation
 
 		Args:
-			x: 输入文本序列，形状为 (B, L) 其中B是批次大小，L是序列长度
+			x: input text sequence with shape (B, L) where B is batch size and L is sequence length
 
 		Returns:
-			分类 logits
+			classification logits
 		"""
 		# x: (B, L)
-		emb = self.embedding(x)  # (B, L, E) 词嵌入
-		_, h_n = self.rnn(emb)   # h_n: (num_layers * num_directions, B, H) RNN前向传播
-		feat = h_n[-1]           # (B, H) 取最后一层的隐藏状态作为特征
-		return self.classifier(feat)  # 分类
+		emb = self.embedding(x)  # (B, L, E) word embedding
+		_, h_n = self.rnn(emb)   # h_n: (num_layers * num_directions, B, H) RNN forward propagation
+		feat = h_n[-1]           # (B, H) take the last layer's hidden state as feature
+		return self.classifier(feat)  # classification

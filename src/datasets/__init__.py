@@ -7,11 +7,12 @@ for federated learning scenarios, and text processing utilities.
 
 from .mnist import get_mnist_datasets
 from .imdb import get_imdb_splits
-from .partition import partition_mnist_label_shift, partition_imdb_label_shift
+from .partition import partition_mnist_label_shift, partition_mnist_random, partition_imdb_label_shift, partition_imdb_random
 from .text_utils import CollateText
 
 __all__ = [
     'get_mnist_datasets', 'get_imdb_splits',
-    'partition_mnist_label_shift', 'partition_imdb_label_shift',
+    'partition_mnist_label_shift', 'partition_mnist_random', 
+    'partition_imdb_label_shift', 'partition_imdb_random',
     'CollateText'
 ]

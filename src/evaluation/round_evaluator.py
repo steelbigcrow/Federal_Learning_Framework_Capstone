@@ -51,9 +51,15 @@ class RoundEvaluator:
             if dataset_name == 'mnist':
                 return get_test_loader(dataset_name, batch_size=64)
             elif dataset_name == 'imdb':
-                pad_idx = 1  # Default padding index
-                max_len = self.model_info.get('max_seq_len', 256)
-                return get_test_loader(dataset_name, pad_idx=pad_idx, max_len=max_len, batch_size=64)
+                model_cfg = self.model_info.get('model_config', {})
+                max_len = model_cfg.get('max_seq_len', 256)
+                min_freq = model_cfg.get('vocab_min_freq', 2)
+                data_cfg_raw = model_cfg.get('data', {})
+                data_cfg = data_cfg_raw if isinstance(data_cfg_raw, dict) else {}
+                cache_dir = data_cfg.get('cache_dir') or self.model_info.get('data_cache_dir') or './data_cache'
+                use_cache = data_cfg.get('use_cache', True)
+                pad_idx = model_cfg.get('pad_idx', 1)
+                return get_test_loader(dataset_name, pad_idx=pad_idx, max_len=max_len, batch_size=64, cache_dir=cache_dir, min_freq=min_freq, use_cache=use_cache)
             else:
                 print(f"[Warning] Unknown dataset type: {dataset_name}, evaluation disabled")
                 return None
@@ -272,3 +278,4 @@ class RoundEvaluator:
             print(f"[Training Complete] Server progress plot failed: {e}")
             import traceback
             traceback.print_exc()
+
